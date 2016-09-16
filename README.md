@@ -7,6 +7,12 @@ of memory. For example, all the data necessary to interpolate passbands or
 spectra are computed once (or rather each time the internal representation
 changes) and stored in memory.
 
+# Dependencies
+- numpy
+- scipy
+- astrolib
+
+# Usage
 
 A typical session would go as this:
 Read a passband from a file *.pb. See in the photometry/data/passbands
@@ -24,13 +30,14 @@ vega = pt.vega_cohen_1992()
 To get the AB magnitude of Vega in the W1 passband:
 w1.mag_ab(Vega)
 
+# Provides
+
 It contains the following submodules, all imported by default.
 - phottools:      some useful functions and constants used accross various
                   submodules
 - passband:       defines the Passband, PassbandHeader and PassbandInterpolator
                   classes
-- spectrum:       defines the BasicSpectrum and the SpectrumInterpolator classes,
-                  as well as some convenience function to quickly obtain
-                  classical spectra such as standards.
-- iramatmosphere: defines the IramAtmosphere class
+- spectrum:       defines the BasicSpectrum and the SpectrumInterpolator classes
+- standards:      define some convenience function to obtain classical spectra.
+- atmosphere:     defines the IramAtmosphere class to handle GILDAS atmosphere models
 - irampassband :  defines the IramPassband class

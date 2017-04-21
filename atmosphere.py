@@ -1,4 +1,8 @@
 __author__ = 'haussel'
+"""
+This module provides the following classes:
+- IramAtmosphere : a class to handle GILDAS ATMOSPHERE models
+"""
 
 import struct
 import numpy
@@ -11,7 +15,9 @@ from .spectrum import BasicSpectrum
 class IramAtmosphere:
     """
     A class to compute opacities and transmissions from GILDAS ATMOSPHERE grid
-    models
+    models.
+
+
 
 
     A typical session would go as this:
@@ -38,14 +44,16 @@ class IramAtmosphere:
         Parameters
         ----------
         model: int
-            year of the model used in GILDAS. Can be 1985 or 2009
+            year of the model used in GILDAS. Can be 1985 or 2009. Defaulted
+            to 2009.
         observatory: str
             observatory name for the computations, normally 'iram30' or
-            'iramPdb'
+            'iramPdb'. Defaulted to 'iram30m'
         profile: str
-            the profile used in ATMOSPHERE. Not used in 1985 models.
+            the profile used in ATMOSPHERE. Not used in 1985 models. Defaulted
+            to 'midlatwinter'
         gildas_atm_file: str
-            the filename of the ATMOSPHER output file to be used.
+            the filename of the ATMOSPHERE output file to be used.
 
 
         Attributes:
@@ -212,8 +220,8 @@ class IramAtmosphere:
 
         The atmosphere model can be changed on the fly by providing new models
         parameters (pressure, temperature, opacity at 225 GHz or water vapour
-        content). If none of these parameters are provide, the current model of
-        atmosphere is used.
+        content). If none of these parameters are provided, the current model
+        of atmosphere is used.
 
         Parameters
         ----------

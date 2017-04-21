@@ -1,22 +1,18 @@
-# file: 1mmV.NIKA2.pb
+# file: 1mmV.NIKA2-2015.pb
 # instrument: NIKA2
 # filter: 1mmV
-# comment: Channel 2: FWHM=46 GHz from 124.7 to 170.6 GHz  Take 150 GHz as the refee
+# description: full system except primary and atmosphere
 # comment: Data acquired at I. Neel, Grenoble with a Martin-Puplett Interferometer
-# comment: obtained in 2015
+# comment: acquired in 2015. reduced v1 2015/10/14 by A.Monfardini, A. F.X. Desert
 # comment: NIKA2 initial configuration before going to the 30m telescope
-# comment: reduced v1 2015/10/14
-# comment: by A.Monfardini, A. F.X. Desert
-# comment: NIKA2 transmission is measured with a Rayleigh-Jeans spectrum in input
-# comment: which is thus consistent with Planets
-# comment: Hence, colour corrections have to be computed
-# comment: Updated transmission in Jan 2017, after the change of 2mm matrix
-# comment: and the lenses
+# comment: Measurement on a flat field. Assume for now it is a rsr
+# comment: These transmissions are the ones for 2015-2016 commissioning, before
+# comment: the change of the 2mm array and the lens.
+# bandwidth: 42 GHz
+# xref: 260.0
+# xtype: nu
 # ytype: rsr
 # xunit: GHz
-# bandwidth: 46.0 GHz
-# xref: 150.0
-# xtype: nu
 191.451309    0.000000
 194.810089    0.000000
 198.168900    0.037114

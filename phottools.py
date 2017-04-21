@@ -1,7 +1,12 @@
-__author__ = 'haussel' 
 """
-This modules provides useful functions for photometric computations.
+This modules provides useful functions for photometric computations:
+- is_wavelength(unit) : check whether unit is a wavelength unit
+- is_frequency(unit)  : check whether unit is a frequency unit
+-
 """
+
+__author__ = 'haussel'
+
 import numpy as np
 from astropy import units as u
 from astropy import constants as const
@@ -80,6 +85,7 @@ def is_fnu(unit):
         result = False
     return result
 
+
 def is_flux(unit):
     """
     Check a unit is an irradiance
@@ -92,6 +98,7 @@ def is_flux(unit):
     except:
         result = False
     return result
+
 
 def quantity_scalar(x):
     """
@@ -156,9 +163,11 @@ def quantity_1darray(x, length=None, other=None):
             return msg
     return msg
 
+
 def quantity_2darray(x, length=None, other=None):
     """
     Check that an input is a quantity 2d array with at least 2 elements
+    or as many as length if length is specified.
     :param x:
     :return: boolean
     """
@@ -181,5 +190,3 @@ def quantity_2darray(x, length=None, other=None):
                   " elements along axis 1 as " + other
             return msg
     return msg
-
-

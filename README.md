@@ -7,11 +7,15 @@ of memory. For example, all the data necessary to interpolate passbands or
 spectra are computed once (or rather each time the internal representation
 changes) and stored in memory.
 
+There is a slight emphasis on (sub)mm wave astronomy as this package as been written
+during my participatiom to the NIKA2 1mm and 2mm camera at the IRAM 30m telescope.
+Yet, it can be used in any wavelength domain (except the high energy, as I work with
+frequencies or wavelengths, not energies).
+
 ## Dependencies
 - numpy
 - scipy
 - astropy
-- pyephem for the planet spectra
 
 ## Usage
 
@@ -36,6 +40,8 @@ To get the AB magnitude of Vega in the W1 passband:
 w1.mag_ab(Vega)
 ```
 
+The notebook directory provides more examples of usage.
+
 ## Provides
 
 It contains the following submodules, all imported by default.
@@ -46,4 +52,7 @@ It contains the following submodules, all imported by default.
 - spectrum:       defines the BasicSpectrum and the SpectrumInterpolator classes
 - standards:      define some convenience function to obtain classical spectra.
 - atmosphere:     defines the IramAtmosphere class to handle GILDAS atmosphere models
-- irampassband :  defines the IramPassband class
+- irampassband:   defines the IramPassband class, to handle varying opacity and emission
+                  of the sky in the band
+- atmosphere:     defines the IramAtmosphere class, to use GILDAS atmosphere models
+- planets:        define the GiantPlanet class to compute the flux of planets

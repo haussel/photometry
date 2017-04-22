@@ -1,7 +1,7 @@
 __author__ = 'haussel'
 
 """
-This module provide tools o compute planet fluxes in the submm. 
+This module provide tools to compute planet fluxes in the submm. 
 For now, only Uranus and Neptune are handled. 
 """
 
@@ -62,9 +62,6 @@ class GiantPlanet:
     where phi is the observer sub latitude and e is the body excentricty.
     .. math::
         e = \sqrt{\frac{r_{eq}^{2} - r_{p}^{2}}{r_{p}^2}}
-    
-
-    
     
     
     """
@@ -251,6 +248,7 @@ class GiantPlanet:
             raise ValueError("date is not an astropy.time")
 
         return np.any(dates.jd == self.dates.jd)
+
 
     def apparent_polar_radius(self):
         """

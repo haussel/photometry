@@ -981,6 +981,30 @@ class Passband:
         result = (self.integrate(self.y, self.x) * self.x_si_unit).to(unit)
         return result
 
+    def xref(self, unit):
+        """
+        returns the reference frequency in unit  
+        
+        Parameters:
+        -----------
+        unit: astropy.unit
+            the requested unit. 
+        
+        Returns:
+        --------
+        astropy.unit.Quantity
+        
+        """
+        if is_wavelength(unit):
+            if self.is_nu:
+                self.in_lam()
+        elif is_frequency(unit):
+            if self.is_lam:
+                self.in_nu()
+        else:
+            raise ValueError("Invalid unit for xref: {}".format(unit))
+        return (self.x_ref * self.x_si_unit).to(unit)
+
     def write(self, xunit, dir=None, overwrite=False, force=False):
         """
         Write a passband to a file. The unit for the x-axis does nor need to be 

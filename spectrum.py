@@ -519,7 +519,7 @@ class BasicSpectrum:
         if not self.interpolation_set:
             self.set_interpolation(self.interpolation_method)
         if isinstance(nu, u.Quantity):
-            result = self.interpolate((nu.to(nu_unit)).value)
+            result = self.interpolate((nu.to(nu_unit)).value) * fnu_unit
         else:
             result = self.interpolate(nu)
         return result
@@ -534,7 +534,7 @@ class BasicSpectrum:
         if not self.interpolation_set:
             self.set_interpolation(self.interpolation_method)
         if isinstance(lam, u.Quantity):
-            result = self.interpolate(lam.to(lam_unit).value)
+            result = self.interpolate(lam.to(lam_unit).value) * flam_unit
         else:
             result = self.interpolate(lam)
         return result

@@ -1,7 +1,7 @@
 # file: 1mmV.NIKA2.pb
 # instrument: NIKA2
 # filter: 1mmV
-# comment: Channel 2: FWHM=46 GHz from 124.7 to 170.6 GHz  Take 150 GHz as the refee
+# comment: Channel 1V: FWHM=42 GHz from 241 to 283 GHz Take 260 GHz as the reference
 # comment: Data acquired at I. Neel, Grenoble with a Martin-Puplett Interferometer
 # comment: obtained in 2015
 # comment: NIKA2 initial configuration before going to the 30m telescope
@@ -12,11 +12,11 @@
 # comment: Hence, colour corrections have to be computed
 # comment: Updated transmission in Jan 2017, after the change of 2mm matrix
 # comment: and the lenses
-# ytype: rsr
-# xunit: GHz
 # bandwidth: 46.0 GHz
-# xref: 150.0
+# ytype: rsr
 # xtype: nu
+# xref: 150.0
+# xunit: GHz
 191.451309    0.000000
 194.810089    0.000000
 198.168900    0.037114

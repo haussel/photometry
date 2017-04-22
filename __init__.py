@@ -45,5 +45,6 @@ from .spectrum import *
 from .atmosphere import *
 from .irampassband import *
 from .standards import *
+from .planets import *
 
 

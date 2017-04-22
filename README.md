@@ -10,7 +10,8 @@ changes) and stored in memory.
 ## Dependencies
 - numpy
 - scipy
-- astrolib
+- astropy
+- pyephem for the planet spectra
 
 ## Usage
 

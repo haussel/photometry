@@ -127,32 +127,6 @@ def power_law(x0, f0, alpha=None, x1=None, f1=None):
     return result
 
 
-def uranus(nu_ref=None, Snu_ref = None, geometric_radius= None,
-           model_version='v4', model_file=None):
-    """
-
-    :return:
-    """
-    if model_file is None:
-        dummy = BasicSpectrum()
-        classpath = inspect.getfile(dummy.__class__)
-        basepath = os.path.dirname(classpath)
-        default_uranus_dir = os.path.join(basepath, 'data/spectra/uranus')
-        uranus_filename = 'uranus_'+model_version+'.fits'
-        uranus_fullpath =  os.path.join(default_uranus_dir, uranus_filename)
-    else:
-        uranus_fullpath = model_file
-    if not os.path.exists(uranus_fullpath):
-        raise ValueError("File not found: {}".format(uranus_fullpath))
-    model = Table.read(uranus_fullpath)
-    bnu = (2. * (uranus['wave'].to(u.Hz))**2 * const.k_B * \
-           uranus['T_rj'] / const.c**2).value
-    #if geometric_radius is not None:
-        #omega =
-    model['Snu'] = (omega.to(u.sr).value * bnu * 1e26) * u.Jy
-    # TBC
-
-
 
 
 

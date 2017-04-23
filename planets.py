@@ -1,10 +1,3 @@
-__author__ = 'haussel'
-
-"""
-This module provide tools to compute planet fluxes in the submm. 
-For now, only Uranus and Neptune are handled. 
-"""
-
 import numpy as np
 import os
 import inspect
@@ -16,10 +9,19 @@ from astropy import constants as const
 from .spectrum import BasicSpectrum
 
 
+__author__ = 'haussel'
+
+"""
+This module provide tools to compute planet fluxes in the (sub-)mm range. 
+For now, only Uranus and Neptune are handled. 
+"""
+
+
 tar = re.compile('^Target body name: (\w+)')
 soe = re.compile('^\$\$SOE')
 eoe = re.compile('^\$\$EOE')
 rad = re.compile('^Target radii\s+: (\d+.\d+) x \d+.\d+ x (\d+.\d+) km')
+
 
 class GiantPlanet:
     """
@@ -27,8 +29,9 @@ class GiantPlanet:
      
     Both these planets were primary calibrators for the Herschel mission. 
     The spectrum of these planets have been modelled for the calibration. 
-    The model spectra can be obtained from ESA [give a link that works..] 
-    These models tabulate the brigthness temperature of the planet 
+    The model spectra can be obtained from ESA: 
+    https://www.cosmos.esa.int/web/herschel/calibrator-models 
+    These models tabulate the brightness temperature of the planet 
     
     The other ingredient to compute the spectral irradiance at the observer 
     position is the solid angle under which the planetary disk is seen. In 
@@ -38,7 +41,8 @@ class GiantPlanet:
     
     We have: 
     .. math::
-       S_{\nu} = \Omega \times \frac{ 2 h \nu^{3}}{c^{2}} \frac{1}{e^{\frac{h \nu}{k T_{b}}} -1}
+       S_{\nu} = \Omega \times \frac{ 2 h \nu^{3}}{c^{2}} 
+       \frac{1}{e^{\frac{h \nu}{k T_{b}}} -1}
     
     Or alternatively using the Rayleigh-Jeans Temperature:
     .. math::
@@ -65,7 +69,7 @@ class GiantPlanet:
     
     
     """
-    def __init__(self, planet, model_version='v4', location='Iram30m',
+    def __init__(self, planet, model_version='esa4', location='Iram30m',
                  datadir=None):
         """
         Initialisation. The planet JPL horizons ephemeris are read, as well as 
@@ -76,7 +80,7 @@ class GiantPlanet:
         planet: str
             The name of the planet
         model_version: str
-            ESA model version. Defaulted to v4. 
+            ESA model version. Defaulted to esa4. 
         location: str
             Location for which the ephemeris was computed. Defaulted to 
             'Iram30m'

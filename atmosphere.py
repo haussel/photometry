@@ -11,6 +11,7 @@ from astropy import units as u
 import inspect
 import os
 from .spectrum import BasicSpectrum
+from .config import DEBUG
 
 class IramAtmosphere:
     """
@@ -68,7 +69,7 @@ class IramAtmosphere:
         filename: str
             name of the file that was read
         conditions_set: boolean
-            True if all parameters have been set and atmospher transmissions
+            True if all parameters have been set and atmosphere transmissions
             and emissions can be computed
         tau_225_set: boolean
             True if a value of opacity a 225 GHz or of water vapour content was
@@ -421,7 +422,7 @@ class IramAtmosphere:
         y = self.tau *u.Jy
         return BasicSpectrum(x = self.frequencies.copy(), y=y)
 
-    def tau(self, pressure=None, temperature=None, tau_225 = None,
+    def opacity(self, pressure=None, temperature=None, tau_225 = None,
             mm_H2O = None):
         """
         returns the array of opacity for the current atmosphere model.
@@ -470,20 +471,24 @@ class IramAtmosphere:
             raise ValueError("conditions are not set")
         return self.tau
 
-    def nu(self):
+    def nu(self, unit):
         """
         Returns the frequencies at which the model is computed
 
         Parameters
         ----------
-        None
+        unit: astropy.unit  
 
         Returns
         -------
         output: (nf, ) array like astropy.units.quantity
           the frequencies at which the model is computed
         """
-        return self.frequencies
+        if DEBUG:
+            print('Atmosphere.nu()')
+
+        return self.frequencies.to(unit)
+
 
     def set_tau_225(self, tau_225=None):
         """
@@ -530,6 +535,8 @@ class IramAtmosphere:
             self.tau = self.grid_tau_dry[:, self.idt, self.idp] + \
                         self.mm_H2O.value * self.grid_tau_wet[:, self.idt,
                                            self.idp]
+            # this is to ensure that everything goes smoothly in IramAtmosphere
+            self._set_internals()
         return self.mm_H2O
 
     def set_mm_H2O(self, mm_H2O=None):
@@ -580,7 +587,17 @@ class IramAtmosphere:
             self.conditions_set = True
             self.tau = self.grid_tau_dry[:, self.idt, self.idp] + \
                         mm_H2O.value * self.grid_tau_wet[:, self.idt, self.idp]
+            self._set_internals()
         return self.tau_225
+
+    def _set_internals(self):
+        """
+        A dummy method that will be overloaded in IramAtmosphere
+        """
+        if DEBUG:
+            print("Amosphere.set_internals()")
+        pass
+
 
     def select_grid(self, temperature=None, pressure=None):
         """
@@ -689,11 +706,15 @@ class IramAtmosphere:
         result = result + "File:                {}\n".format(self.file)
         result = result + "Grid set:            {}\n".format(self.grid_selected)
         result = result + "Current temperature: {}\n".format(self.temperature)
-        result = result + "Model temperature:   {}\n".format(self.current_model_temperature())
-        result = result + "Current pressure:    {}\n".format(self.pressure)
-        result = result + "Model pressure:      {}\n".format(self.current_model_pressure())
+        result = result + "Model temperature:   {}\n".format(
+            self.current_model_temperature())
+        result = result + "Current pressure:    {}\n".format(
+            self.pressure)
+        result = result + "Model pressure:      {}\n".format(
+            self.current_model_pressure())
         result = result + "Tau set:             {}\n".format(self.tau_225_set)
         result = result + "Tau 225 GHz:         {}\n".format(self.tau_225)
         result = result + "mm H2O:              {}\n".format(self.mm_H2O)
-        result = result + "Ready to compute     {}\n".format(self.conditions_set)
+        result = result + "Ready to compute     {}\n".format(
+            self.conditions_set)
         return result

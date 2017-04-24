@@ -16,6 +16,7 @@ from .phottools import is_wavelength, is_frequency, quantity_scalar, \
     quantity_1darray, ndarray_1darray, velc, nu_unit, lam_unit, flam_unit, \
     fnu_unit, nufnu_unit
 from .spectrum import BasicSpectrum
+from .config import DEBUG
 
 
 class Passband:
@@ -63,8 +64,36 @@ class Passband:
               header can be also passed in this case to add more information
             - initialized from arrays x, y and a header.
 
-        Mandatory keywords in the passband file of header are: xunit, xref,
+        Mandatory keywords in the passband file header are: xunit, xref,
         ytype.
+
+        Parameters:
+        -----------
+
+        file: str
+            filename containing the passband. Of the form 'filter.instrument.pb'
+
+        x: astropy.unit.Quantity or numpy.ndarray
+            array of frequencies or wavelengths. If x is an ndarray, the header
+            must be provided to know what are the units.
+        y: numpy.ndarray
+            array of quantum efficiencies or relative system responses
+        xref: astropy.unit.Quantity
+            reference frequency or wavelength for the passband
+        ytype: str
+            type of transmission: 'qe' or 'rsr'
+        header: PassbandHeader or dict or array of str
+            the header of the passband
+        location: str
+            defines where passband and spectra are interpolated. Defaulted to 
+            'both_spectrum_and_passband'. Can also be 'spectrum_at_passband'
+            or 'passband_at_spectrum'
+        interpolation:str
+            defines the interpolation mehod. Defaulted to 'quadratic'. Other 
+            methods are 'nearest' or 'linear'. See PassbandInterpolator.
+        integration: str
+            defines the integration method. Defaulted to 'trapezoidal'. Other 
+            choice is 'simpson'
 
         Attributes:
         -----------
@@ -134,8 +163,8 @@ class Passband:
             The function that performs the integration
         ready: Boolean
             True if the passband is ready for use.
-
-
+        initialized: Boolean
+            True if enough inputs have been provided to initialized a passband  
 
         """
         self.header = PassbandHeader()
@@ -488,46 +517,6 @@ class Passband:
 
     def __str__(self):
         result = "{}".format(self.header)
-    #     if self.is_lam:
-    #         result += "\n current xtype:          lam"
-    #     elif self.is_nu:
-    #         result +=  "\n current xtype:          nu"
-    #     else:
-    #         result +=  "\n current xtype:          None" \
-    #                    " (This should not happen !)"
-    #     result +=  "\n coverage along x:       {:0.3e} to {:0.3e}".\
-    #         format(self.x[0], self.x[-1]*self.x_si_unit)
-    #     if self.is_rsr:
-    #         result += "\n current ytype:          rsr"
-    #     elif self.is_qe:
-    #         result += "\n current ytype:          qe"
-    #     else:
-    #         result += "\n current ytype:          None "
-    #                   "(This should not happen !)"
-    #     result += "\n number of data points:  {}".\
-    #         format(len(self.x))
-    #     result += "\n location method:        {}".\
-    #         format(self.location_method)
-    #     if self.location_set:
-    #         result += "\n location set:           yes"
-    #     else:
-    #         result += "\n location set:           no"
-    #     result +=     "\n interpolation method:   {}".\
-    #         format(self.interpolate_method)
-    #     if self.interpolate_set:
-    #         result += "\n interpolation set:      yes"
-    #     else:
-    #         result += "\n interpolation set:      no"
-    #     result +=     "\n integration method:     {}".\
-    #         format(self.integration_method)
-    #     if self.integrate_set:
-    #         result += "\n integration set:        yes"
-    #     else:
-    #         result += "\n integration set:        no"
-    #     if self.ready:
-    #         result += "\n passband ready for use: yes"
-    #     else:
-    #         result += "\n passband ready for use: no"
         return result
 
     def set_location(self, location):
@@ -675,11 +664,25 @@ class Passband:
     def _integrate_simpson(self, y, x):
         return integrate.simps(y, x=x, axis=-1)
 
+    def response(self):
+        return self.y
+
     def nu(self, unit):
         """
-        return the passband frequency in unit
-        :return: 
+        return the passband frequency in unit. Raise an exception if the 
+        passband is as a function of wavelength
+        
+        Parameters:
+        -----------
+        unit: astropy.unit
+            The frequency unit
+
+        Returns:
+        --------
+        the x of the passband in the requested unit.
         """
+        if DEBUG:
+            print('Passband.nu()')
         if self.is_nu:
             if is_frequency(unit):
                 result = (self.x * self.x_si_unit).to(unit)
@@ -692,8 +695,17 @@ class Passband:
 
     def lam(self, unit):
         """
-        return the passband wavelengths in units.
-        :return: 
+        return the passband wavelength in unit. Raise an exception if the 
+        passband is as a function of frequency
+        
+        Parameters:
+        -----------
+        unit: astropy.unit
+            The wavelength unit
+
+        Returns:
+        --------
+        the x of the passband in the requested unit.
         """
         if self.is_lam:
             if is_wavelength(unit):
@@ -1058,8 +1070,8 @@ class Passband:
                           format(self.header.content['file']))
                     print(" and not to default file {}".format(file))
                 else:
-                    raise ValueError('Default filename {} does not match expected'
-                                     'filename {}. Use force keyword'.
+                    raise ValueError('Default filename {} does not match '
+                                     'expected filename {}. Use force keyword'.
                                      format(file,self.header.content['file'] ))
 
         if dir is None:

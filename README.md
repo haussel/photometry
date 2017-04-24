@@ -7,10 +7,10 @@ of memory. For example, all the data necessary to interpolate passbands or
 spectra are computed once (or rather each time the internal representation
 changes) and stored in memory.
 
-There is a slight emphasis on (sub)mm wave astronomy as this package as been written
-during my participatiom to the NIKA2 1mm and 2mm camera at the IRAM 30m telescope.
-Yet, it can be used in any wavelength domain (except the high energy, as I work with
-frequencies or wavelengths, not energies).
+There is a slight emphasis on (sub)mm wave astronomy as this package as been
+written during my participatiom to the NIKA2 1mm and 2mm camera at the IRAM
+30m telescope. Yet, it can be used in any wavelength domain (except the high
+energy, as I work with frequencies or wavelengths, not energies).
 
 ## Dependencies
 - numpy

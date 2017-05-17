@@ -65,7 +65,7 @@ class GiantPlanet:
         
     where phi is the observer sub latitude and e is the body excentricty.
     .. math::
-        e = \sqrt{\frac{r_{eq}^{2} - r_{p}^{2}}{r_{p}^2}}
+        e = \sqrt{\frac{r_{eq}^{2} - r_{p}^{2}}{r_{eq}^2}}
     
     
     """
@@ -180,7 +180,7 @@ class GiantPlanet:
             raise ValueError("Unable to find ephemeris in file {}".format(filename))
         self.ephemeris = Table.read(ephem_lines, format='csv')
         # Compute body ellipticity
-        self.e = np.sqrt((self.r_eq ** 2 - self.r_p ** 2) / self.r_p ** 2)
+        self.e = np.sqrt((self.r_eq ** 2 - self.r_p ** 2) / self.r_eq ** 2)
 
         # read the spectrum model
         model_filename =  self.name + '_' + model_version + '.fits'

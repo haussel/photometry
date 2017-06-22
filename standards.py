@@ -75,9 +75,9 @@ def power_law(x0, f0, alpha=None, x1=None, f1=None):
                 fnu = (f0.value * (nu[:, np.newaxis]/x0.value)**alpha.T).T
             else:
                 fnu = f0.value * (nu/x0.value)**alpha
-            print("nu = {}".format(nu * x0.unit))
-            print("fnu.shape = {}".format(fnu.shape))
-            print("fnu = {}".format(fnu * f0.unit))
+#            print("nu = {}".format(nu * x0.unit))
+#            print("fnu.shape = {}".format(fnu.shape))
+#            print("fnu = {}".format(fnu * f0.unit))
             result = BasicSpectrum(x=nu * x0.unit, y=fnu * f0.unit,
                                    interpolation_method='log-log-linear',
                                    extrapolate=True)

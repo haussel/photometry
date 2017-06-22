@@ -962,7 +962,7 @@ class Passband:
             bandwidth = self.integrate(itlam * (alllam / self.x_ref), alllam)
         return flux / bandwidth * flam_unit
 
-    def bandwidth(self, unit):
+    def bandwidth(self, unit, normalize=False):
         """
         Computes the bandwidth of the passband
 
@@ -970,6 +970,9 @@ class Passband:
         ----------
         unit: astropy.unit
           The unit of the output bandwidth.
+
+        normalize: bool
+          if set to true, the passband is normalized to its maximum transmission
 
         Returns
         -------
@@ -990,7 +993,11 @@ class Passband:
                 self.in_nu()
         else:
             raise ValueError("Invalid unit for bandwidth: {}".format(unit))
-        result = (self.integrate(self.y, self.x) * self.x_si_unit).to(unit)
+        if normalize:
+            result = (self.integrate(self.y/np.max(self.y), self.x) *
+                      self.x_si_unit).to(unit)
+        else:
+            result = (self.integrate(self.y, self.x) * self.x_si_unit).to(unit)
         return result
 
     def xref(self, unit):

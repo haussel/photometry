@@ -214,6 +214,72 @@ class IramAtmosphere:
         self.grid_tau_wet = numpy.reshape(tau2, (nf, nt, np), order='F')
         return None
 
+    def transmission_as_spectrum(self, elevation, pressure=None,
+                                 temperature=None, tau_225 = None,
+                                 mm_H2O = None):
+        """
+        Compute the atmospheric transmission at given elevation, and returns
+        it as a spectrum.
+        
+        The returned spectrum is (Trans * Jy), which is of course a physical 
+        non-sense since transmission Trans  as no units, but the BasicSpectrum 
+        class only accept a spectral irradiance as input. It is however useful 
+        to derive average transmission in a band.
+
+        The atmosphere model can be changed on the fly by providing new models
+        parameters (pressure, temperature, opacity at 225 GHz or water vapour
+        content). If none of these parameters are provided, the current model
+        of atmosphere is used.
+
+        Parameters
+        ----------
+        elevation: astropy.coordinates.Angle
+            requested elevation. If this is the only parameter given, the
+            current model is used.
+
+        pressure: astropy.units.quantity
+            pressure for which a new model is to be computed before determining
+            the transmission at given elevation
+
+         temperature: astropy.units.quantity
+            temperature for which a new model is to be computed before
+            determining the transmission at given elevation
+
+        tau_225: float
+            opacity at 225 GHz at which a new model is to be computed before
+            determining the transmission at given elevation
+
+        mm_H2O: astropy.units.quantity
+            water vapour content at which a new model is to be computed before
+            determining the transmission at given elevation
+
+
+        Returns
+        -------
+        output: BasicSpectrum
+            The transmission
+        """
+        if pressure is not None or temperature is not None:
+            self.select_grid(pressure=pressure, temperature=temperature)
+            if tau_225 is None and mm_H2O is None:
+                # the quantity that does not change is tau_225,
+                # while mm_H2O will adjust depending on the conditions
+                self.set_tau_225()
+        if tau_225 is not None and mm_H2O is not None:
+            raise ValueError('cant set both tau_225 and mm_H2O')
+        if tau_225 is not None:
+            self.set_tau_225(tau_225=tau_225)
+        if mm_H2O is not None:
+            self.set_mm_H2O(mm_H2O=mm_H2O)
+        if not self.conditions_set:
+            raise ValueError("conditions are not set")
+        if not isinstance(elevation, Angle):
+            raise ValueError('elevation must be an angle')
+        secz = 1./numpy.sin(elevation)
+        result = numpy.exp(-secz.value * self.tau)
+        return BasicSpectrum(x = self.frequencies.copy(), y=result * u.Jy)
+
+
     def transmission(self, elevation, pressure=None, temperature=None,
                      tau_225 = None, mm_H2O = None):
         """
@@ -383,8 +449,7 @@ class IramAtmosphere:
     def tau_as_spectrum(self, pressure = None, temperature = None,
                  tau_225 = None, mm_H2O = None):
         """
-        Returns a BasicSpectrum of the atmosphere opacity at requested
-        elevation
+        Returns a BasicSpectrum of the atmosphere zenith opacity 
 
         The returned spectrum is (tau Jy), which is of course a physical non-
         sense since tau as no units, but the BasicSpectrum class only accept
@@ -425,7 +490,7 @@ class IramAtmosphere:
     def opacity(self, pressure=None, temperature=None, tau_225 = None,
             mm_H2O = None):
         """
-        returns the array of opacity for the current atmosphere model.
+        returns the array of zenith opacity for the current atmosphere model.
 
         The atmosphere model can be changed on the fly by providing new models
         parameters (pressure, temperature, opacity at 225 GHz or water vapour

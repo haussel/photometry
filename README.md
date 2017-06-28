@@ -2,15 +2,16 @@
 
 The photometry package is a simple synthetic photometry package.
 
-The emphasis has been put on speed (as much as I could) rather than on economy
-of memory. For example, all the data necessary to interpolate passbands or
-spectra are computed once (or rather each time the internal representation
-changes) and stored in memory.
+The emphasis has been put on speed (as much as I could) rather than on
+economy of memory. For example, all the data necessary to interpolate
+passbands or spectra are computed once (or rather each time the
+internal representation changes) and stored in memory.
 
-There is a slight emphasis on (sub)mm wave astronomy as this package as been
-written during my participatiom to the NIKA2 1mm and 2mm camera at the IRAM
-30m telescope. Yet, it can be used in any wavelength domain (except the high
-energy, as I work with frequencies or wavelengths, not energies).
+There is a slight emphasis on (sub)mm wave astronomy as this package
+as been written during my participation to the commissioning of NIKA2,
+the new 1mm and 2mm camera at the IRAM 30m telescope. Yet, it can be
+used in any wavelength domain (except the high energy, as I work with
+frequencies or wavelengths, not energies).
 
 ## Dependencies
 - numpy
@@ -19,18 +20,20 @@ energy, as I work with frequencies or wavelengths, not energies).
 
 ## Usage
 
-A typical session would go as this:
-Read a passband from a file *.pb. See in the photometry/data/passbands
-directory for some examples. They are grouped per instruments in subdirectories. 
+A typical session would go as this: Read a passband from a file
+*.pb. See in the photometry/data/passbands directory for some
+examples. They are grouped per instruments in subdirectories.
 
 ```
 import photometry as pt
 w1 = pt.Passband(file='W1.WISE.pb')
 ```
-Read a spectrum. Alternatively, the data directory contains a few classical
-standard spectra as well as some libraries.
-For example, to get the Vega spectrum used by Jarrett et al. (2011) for the
+
+Read a spectrum. Alternatively, the data directory contains a few
+classical standard spectra as well as some libraries.  For example, to
+get the Vega spectrum used by Jarrett et al. (2011) for the
 calibration of the WISE data:
+
 ```
 vega = pt.vega_cohen_1992()
 ```

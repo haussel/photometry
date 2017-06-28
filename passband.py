@@ -2,7 +2,10 @@
 This module provides the following classes:
 - Passband : a class to hold a passband
 - PassbandHeader: a class to hold the content of the header of a passband.
-- PassbandInterpolator: a class to perform various interpolation
+- PassbandInterpolator: a class to perform various interpolation for passbands
+
+Provide also the functions:
+- tophat
 """
 __author__ = 'Herve Aussel'
 
@@ -53,7 +56,8 @@ class Passband:
     # Initialization Methods
     def __init__(self, file=None, x=None, y=None, xref=None, ytype=None,
                  header=None, location='both_spectrum_and_passband',
-                 interpolation='quadratic', integration='trapezoidal'):
+                 interpolation='quadratic', integration='trapezoidal',
+                 nowarn=False):
         """
 
         Initialization. The passband can be:
@@ -94,6 +98,9 @@ class Passband:
         integration: str
             defines the integration method. Defaulted to 'trapezoidal'. Other 
             choice is 'simpson'
+        nowarn: bool
+            If set to True, no warning message of incomplete information is
+            given
 
         Attributes:
         -----------
@@ -194,6 +201,9 @@ class Passband:
         self.integrate = None
         self.ready = False
         self.intialized = False
+        self.nowarn = False
+
+        self.nowarn = nowarn
 
         if file is not None:
             if ((x is None) and (y is None) and (xref is None) and
@@ -430,28 +440,32 @@ class Passband:
             if self.file is not None:
                 self.header.add_card_value('file', self.file)
             else:
-                print("Warning ! file needs to be set")
+                if not self.nowarn:
+                    print("Warning ! file needs to be set")
         else:
             if self.file is None:
                 self.file = self.header.content['file']
             else:
                 if self.file != self.header.content['file']:
-                    print("Warning file does not match between\n" +
-                          "header: {}\nobject: {}"
+                    if not self.nowarn:
+                        print("Warning file does not match between header: "
+                              "{}\nobject: {}"
                           .format(self.header.content['file'], self.file))
 
         if 'instrument' not in self.header.content:
             if self.instrument is not None:
                 self.header.add_card_value('instrument', self.instrument)
             else:
-                print("Warning ! instrument needs to be set")
+                if not self.nowarn:
+                    print("Warning ! instrument needs to be set")
         else:
             if self.instrument is None:
                 self.instrument = self.header.content['instrument']
             else:
                 if self.instrument != self.header.content['instrument']:
-                    print("Warning instrument does not match between\n"
-                          "header: {}\nobject: {}"
+                    if not self.nowarn:
+                        print("Warning instrument does not match between\n"
+                              "header: {}\nobject: {}"
                           .format(self.header.content['instrument'],
                                   self.instrument))
 
@@ -459,14 +473,16 @@ class Passband:
             if self.filter is not None:
                 self.header.add_card_value('filter', self.filter)
             else:
-                print("Warning ! filter needs to be set")
+                if not self.nowarn:
+                    print("Warning ! filter needs to be set")
         else:
             if self.filter is None:
                 self.filter = self.header.content['filter']
             else:
                 if self.filter != self.header.content['filter']:
-                    print("Warning filter does not match between\n"
-                          "header: {}\nobject: {}"
+                    if not self.nowarn:
+                        print("Warning filter does not match between\n header: "
+                              "{}\nobject: {}"
                           .format(self.header.content['filter'], self.filter))
 
         if 'xtype' not in self.header.content:
@@ -480,10 +496,11 @@ class Passband:
             else:
                 if self.org_x_type != self.header.content['xtype']:
                     # TODO get rid of this annoying warning with files where wavelength is indicated with lam
-                    print("Warning xtype does not match between\n"
-                          "header: {}\nobject: {}"
-                          .format(self.header.content['xtype'],
-                                  self.org_x_type))
+                    if self.nowarn:
+                        print("Warning xtype does not match between\n"
+                              "header: {}\nobject: {}"
+                            .format(self.header.content['xtype'],
+                                    self.org_x_type))
 
         if 'ytype' not in self.header.content:
             if self.org_y_type is not None:
@@ -495,10 +512,11 @@ class Passband:
                 raise ValueError("org_y_type is not set !")
             else:
                 if self.org_y_type != self.header.content['ytype']:
-                    print("Warning ytype does not match between\n"
-                          "header: {}\nobject: {}"
-                          .format(self.header.content['ytype'],
-                                  self.org_y_type))
+                    if self.nowarn:
+                        print("Warning ytype does not match between\n"
+                              "header: {}\nobject: {}"
+                            .format(self.header.content['ytype'],
+                                    self.org_y_type))
 
         if 'xref' not in self.header.content:
             if self.org_x_ref is not None:
@@ -510,10 +528,11 @@ class Passband:
                 raise ValueError("org_x_ref is not set !")
             else:
                 if self.org_x_ref != float(self.header.content['xref']):
-                    print("Warning xref does not match between\n"
-                          "header: {}\nobject: {}"
-                          .format(self.header.content['xref'],
-                                  self.org_x_ref))
+                    if self.nowarn:
+                        print("Warning xref does not match between\n"
+                              "header: {}\nobject: {}"
+                            .format(self.header.content['xref'],
+                                    self.org_x_ref))
 
     def __str__(self):
         result = "{}".format(self.header)
@@ -1024,6 +1043,51 @@ class Passband:
             raise ValueError("Invalid unit for xref: {}".format(unit))
         return (self.x_ref * self.x_si_unit).to(unit)
 
+    def combine(self, other):
+        """
+        Combine the passband with an other passband
+
+        Parameters
+        ----------
+        other: Passband
+        The other passband to combine with.
+
+        Returns
+        -------
+        output: Passband
+        Output passband. It is only partially initialized, just with x, y, xref
+        (inherited from self) and ytype.
+        """
+        if not isinstance(other, Passband):
+            raise ValueError("Input is not a passband")
+        if self.is_nu:
+            if other.is_lam:
+                self.in_lam()
+        else:
+            if other.is_nu:
+                self.in_nu()
+        # determine the type of passband:
+        if self.is_rsr:
+            if other.is_rsr:
+                restype='rsr'
+            else:
+                restype='qe'
+        else:
+            if other.is_rsr:
+                restype='qe'
+            else:
+                restype='qe'
+        allx = self.location(self.x, other.x)
+        intts = self.interpolate(allx)
+        intto = other.interpolate(allx)
+        ally = intts * intto
+        # determine the type of passband
+        result = Passband(x=allx * self.x_si_unit,
+                          xref=self.xref(self.x_si_unit),  y=ally,
+                          ytype=restype, nowarn=True)
+        return result
+
+
     def write(self, xunit, dir=None, overwrite=False, force=False):
         """
         Write a passband to a file. The unit for the x-axis does nor need to be 
@@ -1127,6 +1191,50 @@ class Passband:
             for i, xval in enumerate(xvals):
                 f.write("{:>0.6f}    {:>0.6f}\n".format(xval, self.y[i]))
         return fullfilename
+
+    def psf_weight(self, spectrum, xarr):
+        """
+        Compute the weight to apply to psf computation.
+
+        Parameters:
+        -----------
+        spectrum: BasicSpectrum object
+            the spectrum used for the weighting. If more than one spectrum is
+            present... decide what to do.
+
+        xarr :  astropy.unit.Quantity of N elements
+            Positons (wavelength or frequency) where the PSF have been
+            computed. The PSF is considered constant between two consecutive
+            mid-points in xarr: hence the following:
+
+            xarr[0]      xarr[1]   xarr[2]       xarr[N-2]    xarr[N]
+            |        |     .     |    .             .       |
+            | PSF[0] |   PSF[1]  |    .     ...   PSF[N-2]  | PSF[N-1]
+            |        |     .     |    .             .       |
+
+        :return:
+            numpy.ndarray of N weigths
+        """
+        if not isinstance(spectrum, BasicSpectrum):
+            raise ValueError("Spectrum is not a BasicSpectrun")
+        msg = quantity_1darray(xarr)
+        if msg:
+            raise ValueError("xarr"+msg)
+        lowlims = np.copy(xarr.value)
+        lowlims[1:] = 0.5*(xarr[1:].value + xarr[0:-1].value)
+        highlims = np.copy(xarr.value)
+        highlims[0:-1] = lowlims[1:]
+        weights = np.zeros(xarr.shape)
+        for i, low in enumerate(lowlims):
+            high = highlims[i]
+            bit = tophat(np.array([low, high]) * xarr.unit)
+            slice = self.combine(bit)
+            weights[i] = slice.flux(spectrum).value
+        return weights/np.sum(weights)
+
+
+
+
 
 
 class PassbandHeader:
@@ -1396,3 +1504,26 @@ class PassbandInterpolator:
             res[oo] = 0.
 
         return res
+
+def tophat(xlims, ytype='rsr'):
+    """
+    Generate a tophat bandpass, with 1.0 between xfrom and xto, and 0 elsewhere.
+
+    Parameters:
+    -----------
+    xlims: astropy.Quantity 2 elements
+
+    Return:
+    -------
+    A tophat passband
+
+    """
+    msg = quantity_1darray(xlims, length=2)
+    if msg:
+        raise ValueError("xlims" + msg)
+    yvals = np.array([1.,1.])
+    result = Passband(x=xlims, y=yvals, xref=0.5*np.sum(xlims), ytype=ytype,
+                      interpolation='linear', nowarn=True)
+    return result
+
+

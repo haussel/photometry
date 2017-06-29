@@ -343,8 +343,8 @@ class IramAtmosphere:
         """
         Compute the atmospheric emission at given elevation.
 
-        The returned emission is simply exp(secz * tau), where secz is the
-        airmass. So this is not the true atmosphere emission, it is missing
+        The returned emission is simply T*(1-exp(-secz * tau)), where secz is
+        the airmass. So this is not the true atmosphere emission, it is missing
         a normalization factor
 
         The atmosphere model can be changed on the fly by providing new models
@@ -405,7 +405,7 @@ class IramAtmosphere:
         Returns a BasicSpectrum of the atmosphere emission at requested
         elevation
 
-        The returned emission is simply exp(secz * tau) in Jy, where secz is
+        The returned emission is the emission method one in Jy, where secz is
         the airmass. So this is not the true atmosphere emission, it is missing
         a normalization factor
 

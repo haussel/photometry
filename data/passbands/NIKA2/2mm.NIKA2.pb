@@ -1,4 +1,7 @@
-# ytype: rsr
+# instrument: NIKA2
+# filter: 2mm
+# bandwidth: 42.0 GHz
+# file: 2mm.NIKA2.pb
 # comment: Channel 2: FWHM=46 GHz from 124.7 to 170.6 GHz  Take 150 GHz as the refee
 # comment: Data acquired at I. Neel, Grenoble with a Martin-Puplett Interferometer
 # comment: obtained in 2015
@@ -9,12 +12,9 @@
 # comment: and the lenses
 # comment: Original measurement divided by a RJ spectrum by H.A. in order to
 # comment: have a pure transmission.
-# xtype: nu
-# bandwidth: 42.0 GHz
 # xref: 150.0
-# filter: 2mm
-# instrument: NIKA2
-# file: 2mm.NIKA2.pb
+# ytype: rsr
+# xtype: nu
 # xunit: GHz
 107.487816    0.000000
 110.846817    0.000000

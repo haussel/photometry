@@ -159,3 +159,32 @@ class IramPassband(Passband,IramAtmosphere):
         else:
             raise ValueError("input elevation is not an Angle")
 
+    def shift_passband(self, shift_factor):
+        """
+        Shift the passband (and not the atmosphere), by multiplying the
+        frequency array by shift_factor.
+
+        Parameters:
+        -----------
+        shift_factor: float
+
+        """
+        self.x_org  = self.x_org * shift_factor
+        self.interp_pb_org = PassbandInterpolator(self.x_org, self.y_org,
+                                                  kind='quadratic')
+        self._set_internals()
+        try:
+            self.shift = self.shift * shift_factor
+        except:
+            self.shift = shift_factor
+
+    def unshift_passband(self):
+        """
+        Unshift a passband
+        """
+        try:
+            shift_factor = 1./self.shift
+        except:
+            print("Passband is not shifted")
+            shift_factor = 1.
+        self.shift_passband(shift_factor)

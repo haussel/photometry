@@ -2,7 +2,16 @@
 This modules provides useful functions for photometric computations:
 - is_wavelength(unit) : check whether unit is a wavelength unit
 - is_frequency(unit)  : check whether unit is a frequency unit
--
+- is_energy(unit)     : check whether unit is a energy unit
+- is_flam(unit)       : check whether unit is a spectral irradiance per unit
+                        wavelength
+- is_fnu(unit)        : check whether unit is a spectral irradiance per unit
+                        frequency
+- is_flux(unit)       : check whether unit is an irradiance
+- quantity_scalar(x)  : check whether x is a scalar
+- ndarray_1darray(x)  : check whether x is a 1d array, test length if needed
+- quantity_1darray(x) : check whether x is a 1d Quantity, test length if needed
+- quantity_2darray(x) : check whether x is a 2d Quantity, test length if needed
 """
 
 __author__ = 'haussel'
@@ -103,8 +112,8 @@ def is_flux(unit):
 def quantity_scalar(x):
     """
     Check that input is a scalar quantity
-    :param x:
-    :return:
+    :param x: variable to test
+    :return: True / False
     """
     msg = None
     if not isinstance(x, u.Quantity):
@@ -115,11 +124,23 @@ def quantity_scalar(x):
         return msg
     return msg
 
+
 def ndarray_1darray(x, length=None, other=None):
     """
-    Check that an input is a quantity 1d array with at least 2 elements
-    :param x:
-    :return: boolean
+    Check that an input is a 1d array with at least 2 elements
+
+    Parameters
+    ----------
+    x : any
+        input ot be tested
+    length: int
+        if not None (default), test that x and length elements
+    other: str
+        name of variable to be added to message
+
+    Returns
+    -------
+    if x checks OK, returns None, otherwize returns a string message
     """
     msg = None
     if not isinstance(x, np.ndarray):
@@ -140,9 +161,21 @@ def ndarray_1darray(x, length=None, other=None):
 
 def quantity_1darray(x, length=None, other=None):
     """
-    Check that an input is a quantity 1d array with at least 2 elements
-    :param x:
-    :return: boolean
+    Check that an input is a 1d Quantity with at least 2 elements
+
+    Parameters
+    ----------
+    x : any
+        input ot be tested
+    length: int
+        if not None (default), test that x and length elements
+    other: str
+        name of variable to be added to message
+
+    Returns
+    -------
+    if x checks OK, returns None, otherwize returns a string message
+
     """
     msg = None
     if not isinstance(x, u.Quantity):
@@ -166,10 +199,24 @@ def quantity_1darray(x, length=None, other=None):
 
 def quantity_2darray(x, length=None, other=None):
     """
-    Check that an input is a quantity 2d array with at least 2 elements
-    or as many as length if length is specified.
-    :param x:
-    :return: boolean
+    Check that an input is a 2d Quantity with at least 2 elements in its
+    first dimension. Length allows to test the number of elements in the
+    second dimension.
+
+    Parameters
+    ----------
+    x : any
+        input ot be tested
+    length: int
+        if not None (default), test that x and length elements in its last
+        dimension.
+    other: str
+        name of variable to be added to message
+
+    Returns
+    -------
+    if x checks OK, returns None, otherwize returns a string message
+
     """
     msg = None
     if not isinstance(x, u.Quantity):

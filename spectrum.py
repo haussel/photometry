@@ -1,17 +1,16 @@
 __author__ = 'haussel'
 """
 This module provides the following classes:
-- BasicSpectrum: a class to represent a spectrum
+- BasicSpectrum: a class to represent one or more spectra
 - SpectrumInterpolator: a class to perform various interpolation
-- some convenience routines to access specific spectra
 """
 import numpy as np
 import os
 import inspect
 from astropy import units as u
 from astropy.table import Table
-from .phottools import is_frequency, is_wavelength, is_flam, is_fnu, \
-    quantity_scalar, quantity_1darray, quantity_2darray,\
+from .phottools import  is_frequency, is_wavelength, is_flam, \
+    is_fnu, quantity_scalar, quantity_1darray, quantity_2darray,\
     velc, nu_unit, lam_unit, flam_unit, fnu_unit
 
 
@@ -20,13 +19,145 @@ class BasicSpectrum:
     A class to represent spectra.
 
 
+    Attributes
+    ----------
+    org_x_type : 'nu' or 'lam'
+        original type of x input
+    org_x_unit : astropy.units
+        original unit of x input
+    org_y_type : 'fnu' or 'flam'
+        original type of y input
+    org_y_unit : astropy.units
+        original units of input
+    x : astropy.units.Quantity 1D
+        array of wavelength or frequencies in SI units
+    x_si_unit: astropy.units
+        unit of x
+    is_lam: bool
+        True if x is an array of wavelengths
+    is_nu: bool
+        True if x is an array of frequencies
+    nb: int
+        Number of spectra
+    y: astropy.units.Quantity 1D [N] or 2D [nb, N] where N is the number of
+       x points
+       Spectra
+    y_si_unit: astropy.units
+        unit of y
+    is_flam: bool
+        True if y is a spectral irradiance per unit wavelength
+    is_fnu: bool
+        True if y  is a spectral irradiance per unit frequency
+    scale: float or ndarray
+        scale factor applied to the spectrum
+    shift: float
+        shift applied to the x array
+    interpolation_method: str
+        method to interpolate the spectrum. Can be:
+            - nearest : nearest neighbor interpolation
+            - linear : linear interpolation
+            - quadratic : quadratic interpolation
+            - log-log-linear : linear interpolation in log space
+    can_extrapolate: bool
+        if True, interpolation can extrapolate outside spectrum definition
+        without raising an exception
+    interpolation_set: bool
+        True if the spectrum interpolator has been initialized
+    interpolate: SpectrumInterpolator
+        The object performing the interpolation
 
+
+    Methods
+    -------
+
+    - set_interpolation(interpolation_method, extrapolate=False)
+        Set the interpolation method for the spectrum
+    - scale(factor)
+        Multiply the spectra by factor(s).
+    - unscale()
+    - shift(factor)
+        Multiply the x by factor
+    - unshift()
+        Remove any shift
+    - nu(unit=None)
+        Returns x as an array of frequencies
+    - lam(unit=None)
+        Returns x as an array of wavelengths
+    - fnu(unit=None, ispec=None)
+        Returns spectra as spectral irradiance per unit frequency, with the
+        possibility to choose the unit and to only output one selected spectrum
+    - flam(unit=None, ispec=None)
+        Returns the spectrum in spectral irradiance per unit wavelength,
+        with the possibility to choose the unit and to only output one
+        selected spectrum
+    - in_nu()
+        Set the spectrum to 'nu' type.
+    - in_lam()
+        Set the spectrum to 'lam' type
+    - in_flam()
+        Set the spectrum to 'flam' type
+    - in_fnu()
+        Set the spectrum to 'fnu' type
+    - fnu_nu(nu)
+        Interpolate the spectrum in the form of Fnu at the requested
+        frequencies. The spectrum is converted to 'nu', 'fnu' type
+    - flam_lam(lam)
+        Interpolate the spectrum in the form of Flam at the requested
+        wavelengths. The spectrum is converted to 'lam', 'flam' type
     """
     def __init__(self, data=None, name_x=None, names_y=None,
                  x=None, x_type=None, x_unit=None,
                  y=None, y_type=None, y_unit=None,
                  interpolation_method = 'log-log-linear',
                  extrapolate = False):
+        """
+        Initialization. Valid calls are:
+
+        - initialization from a Table:
+        >>> import photometry as pt
+        >>> spec = pt.BasicSpectrum(data=mydata)
+        or specifying which columns to use
+        >>> spec = pt.BasicSpectrum(data=mydata, name_x='colname',
+                                    names_y=['colname1',...,'colnameN'])
+
+        - initialization from quantities:
+        >>> spec = pt.BasicSprectrum(x = my_x, y=my_y)
+        - initialization from arrays
+        >>> spec = pt.BasicSprectrum(x = my_x, x_type='my_x_type',
+                                     x_unit=my_x_unit, y=my_y,
+                                     y_type='my_y_type', y_unit=my_y_unit)
+
+        Parameters
+        ----------
+        data: astropy.table.Table or numpy.ndarray
+            Contains the x and y values
+        name_x : str
+            name of data column for the x values. If not provided, tries with
+            the first column
+        names_y: str or list of str
+            name(s) of the columns containing the y values. If not provided,
+            tries with all the remaining columns
+        x : numpy.ndarray or astropy.Quantity
+            values of x
+        x_type : str 'lam' or 'nu'
+            type of x
+        x_unit : astropy.units or str
+            unit of x
+        y : numpy.ndarray or astropy.Quantity
+            values of y
+        y_type : str 'flam' or 'fnu'
+            type of y
+        y_unit : astropy.units or str
+            unit of y
+        interpolation_method: str
+            interpolation method, can be 'nearest', 'linear', 'quadratic',
+            'log-log-linear'. Defaulted to 'log-log-linear'
+        extrapolate: bool
+            If True, spectra can be interpolated outside of the x array
+            bounds without raising an exception. Defaulted to False.
+
+
+        """
 
         self.org_x_type = None
         self.org_x_unit = None
@@ -41,6 +172,8 @@ class BasicSpectrum:
         self.y_si_unit = None
         self.is_flam = None
         self.is_fnu = None
+        self.factor = 1.0
+        self.shift = 1.0
         self.interpolation_method = None
         self.can_extrapolate = False
         self.interpolation_set = False
@@ -54,8 +187,8 @@ class BasicSpectrum:
                 self._init_from_table(data, colname_x = name_x,
                                       colnames_y = names_y)
             elif isinstance(data, np.ndarray):
-                init_func = self._init_from_ndarray(data, name_x = name_x,
-                                                    names_y = names_y)
+                self._init_from_ndarray(data, name_x = name_x, names_y =
+                names_y)
             else:
                 raise ValueError('`data` has to be a table or an ndarray')
         else:
@@ -76,18 +209,23 @@ class BasicSpectrum:
         if self.x is not None and self.y is not None:
             self.interpolation_set = self.set_interpolation(
                 interpolation_method, extrapolate=extrapolate)
+            self.factor = np.ones(self.nb)
+            self.shift = 1.0
 
     def _init_from_table(self, data, colname_x=None, colnames_y=None):
         """
         Initialize from a table.
-        parameters:
-            data: astropy.table.Table
-            colname_x: str
-                name of the column containing the frequencies or wavelengths.
-                If not given, try with the first column
-            colname_y: str
-                name of the column containing the fluxes.
-                If not given, try with the second column
+
+        Parameters
+        ----------
+        data: astropy.table.Table
+            table containing the data
+        colname_x: str
+            name of the column containing the frequencies or wavelengths.
+            If not given, try with the first column
+        colnames_y: str
+            name(s) of the column(s) containing the fluxes.
+            If not given, try with the second column
         """
         if not isinstance(data, Table):
             raise ValueError('`data` is not a Table')
@@ -170,11 +308,11 @@ class BasicSpectrum:
         return None
 
 
-    def _init_from_ndarray(self, data, interpolation_method=None):
+    def _init_from_ndarray(self, data, colname_x=None,
+                           colnames_y=None, interpolation_method=None):
         """
+        Init from an ndarray. Not yet implemented
 
-        :param data:
-        :return:
         """
         if not isinstance(data, np.ndarray):
             raise ValueError('`data` is not a ndarray')
@@ -185,10 +323,13 @@ class BasicSpectrum:
     def _init_from_quantities(self, x, y, interpolation_method=None):
         """
         initialize the spectrum from two quantities
-        :param x: astropy.unit.quantity, array of wavelengths or frequencies
-        :param y: astropy.unit.quantity, array of spectral irradiances, fnu
-                or flam
-        :return: None
+
+        Parameters
+        x: astropy.unit.quantity
+            array of wavelengths or frequencies
+        y: astropy.unit.quantity
+            array of spectral irradiances, fnu or flam
+
         """
 
         msg = quantity_1darray(x)
@@ -208,12 +349,10 @@ class BasicSpectrum:
             self.is_lam = True
             self.is_nu = False
             self.org_x_type = 'lam'
-            self.org_y_unit = y.unit
+            self.org_x_unit = x.unit
         else:
             raise ValueError('invalid unit {} for input quantity `x`'.
                              format(x.unit))
-
-
         xv = x.to(self.x_si_unit).value
         idx = np.argsort(xv)
 
@@ -248,6 +387,28 @@ class BasicSpectrum:
         return None
 
     def _init_from_fullinfo(self, x, x_type, x_unit, y, y_type, y_unit):
+        """
+        Initialize from full information
+
+        Parameters
+        ----------
+        x: astropy.units.Quantity or numpy.ndarray
+            x values
+        x_type: str 'lam' or 'nu'
+            type of x values
+        x_unit: str or astropy.units
+            unit of x
+        y: astropy.units.Quantity or numpy.ndarray
+            y values
+        y_type: str 'flam' or 'fnu'
+            type of y values
+        y_unit: str or astropy.units
+            unit of y
+
+        Returns
+        -------
+        None
+        """
         if not isinstance(x_unit, u.Unit):
             try:
                 xunit = u.Unit(x_unit)
@@ -316,6 +477,24 @@ class BasicSpectrum:
 
     def set_interpolation(self, interpolation_method, extrapolate=False):
         """
+        Set the interpolation method, and initialize it.
+
+        Parameters
+        ----------
+        interpolation_method: str
+            interpolation method, can be:
+                - 'nearest': nearest neighbor
+                - 'linear' : linear interpolation
+                - 'quadratic' : quadratic interpolation
+                - 'log-log-linear' : linear in log space
+        extrapolate: bool
+            if True, the spectrum can be interpolated outside of its x support.
+            Defaulted to false
+
+        Returns
+        -------
+        bool : True if successul, False if not
+
         """
         try:
             self.interpolate = SpectrumInterpolator(self.x, self.y,
@@ -337,48 +516,89 @@ class BasicSpectrum:
 
         Parameter
         ---------
-        factor: float
-          the scaling factor
+        factor: float or numpy.array of nb spectra values
+          the scaling factor(s)
 
         Returns
         -------
-        output: None
+        None
         """
         self.y *= factor
+        self.factor *= factor
         return None
 
-
-    def adjust(self, x0, y0):
+    def unscale(self):
         """
-        Adjust the spectrum so that
+        Remove any scaling
+        """
+        factor = 1./self.factor
+        self.scale(factor)
+
+    def shift(self, factor):
+        """
+        Shift the spectrum in the sense x *= factor
+
+        Parameter
+        ---------
+        factor: float
+            value by which x are multiplied
+
+        Returns
+        -------
+        None
+        """
+        self.x *= factor
+        self.shift *= factor
+        return None
+
+    def unshift(self):
+        """
+        Remove the shift in x
+        """
+        factor = 1./self.shift
+        self.shift(factor)
+
+
+    def nu(self, unit=None):
+        """
+        Returns the frequency array of the spectrum in Hz or in requested unit
 
         Parameters
         ----------
-        x0: astropy.units.quantity
-          The x position at which y is given (frequency or wavelength)
+        unit: astropy.unit
+            the output unit. If None, returns frequencies in Hz
 
-        y0: astropy.units.quantity
-          The y value
+        Returns
+        -------
+        astropy.units.Quantity
+            array of frequencies
         """
-        raise NotImplementedError()
-
-    def nu(self, unit=None):
-        """ Returns the frequency array of the spectrum in Hz """
         if self.is_lam:
             if unit is None:
-                return velc / self.x[::-1]
+                return velc / self.x
             else:
-                return (velc / self.x[::-1] * nu_unit).to(unit)
+                return (velc / self.x * nu_unit).to(unit)
         else:
             if unit is None:
                 return self.x
             else:
                 return (self.x * nu_unit).to(unit)
 
-
-
     def lam(self, unit = None):
-        """ Returns the wavelength array of the spectrum in m"""
+        """
+        Returns the wavelength array of the spectrum in m or in requested unit
+
+        Parameters
+        ----------
+        unit: astropy.unit
+            the output unit. If None, returns wavelengths in m
+
+        Returns
+        -------
+        astropy.units.Quantity
+            array of wavelengths
+
+        """
         if self.is_lam:
             if unit is None:
                 return self.x
@@ -386,13 +606,13 @@ class BasicSpectrum:
                 return (self.x * lam_unit).to(unit)
         else:
             if unit is None:
-                return velc / self.x[::-1]
+                return velc / self.x
             else:
-                return (velc / self.x[::-1] * lam_unit).to(unit)
+                return (velc / self.x * lam_unit).to(unit)
 
     def fnu(self, unit=None, ispec=None):
         """
-        returns the spectrum in spectral irrandiance per unit frequency
+        returns the spectrum in spectral irradiance per unit frequency
 
         if the unit is not given, the spectrum is returned in fnu_unit (i.e
         in W/m**2/Hz) but without unit (ndarray)
@@ -419,12 +639,12 @@ class BasicSpectrum:
             result = (result * fnu_unit).to(unit)
         if ispec is not None:
             if self.nb > 1:
-                result = result[ispec,:]
+                result = result[ispec, :]
         return result
 
     def flam(self, unit=None, ispec=None):
         """
-        returns the spectrum in spectral irrandiance per unit wavelength
+        returns the spectrum in spectral irradiance per unit wavelength
 
         if the unit is not given, the spectrum is returned in flam_unit (i.e
         in W/m**2/m) but without unit (ndarray)
@@ -452,15 +672,17 @@ class BasicSpectrum:
             result = (result * flam_unit).to(unit)
         if ispec is not None:
             if self.nb > 1:
-                result = result[ispec,:]
+                result = result[ispec, :]
         return result
 
     def in_nu(self):
-        """ Set the spectrum to 'nu' type """
+        """
+        Set the spectrum to 'nu' type
+        """
         if self.is_lam:
             self.x = velc / self.x[::-1]
             if self.nb > 1:
-                self.y = self.y[::-1, :]
+                self.y = self.y[:,::-1]
             else:
                 self.y = self.y[::-1]
             self.is_lam = False
@@ -470,11 +692,13 @@ class BasicSpectrum:
         return None
 
     def in_lam(self):
-        """ Set the spectrum to 'lam' type """
+        """
+        Set the spectrum to 'lam' type
+        """
         if self.is_nu:
             self.x = velc / self.x[::-1]
             if self.nb > 1:
-                self.y = self.y[::-1,:]
+                self.y = self.y[:,::-1]
             else:
                 self.y = self.y[::-1]
             self.is_lam = True
@@ -484,7 +708,9 @@ class BasicSpectrum:
         return None
 
     def in_flam(self):
-        """ Set the spectrum to 'flam' type """
+        """
+        Set the spectrum to 'flam' type
+        """
         if self.is_fnu:
             if self.is_nu:
                 self.y = self.y * self.x / (velc / self.x)
@@ -497,7 +723,9 @@ class BasicSpectrum:
         return None
 
     def in_fnu(self):
-        """ Set the spectrum to 'fnu' type """
+        """
+        Set the spectrum to 'fnu' type
+        """
         if self.is_flam:
             if self.is_nu:
                 self.y = self.y * (velc / self.x) / self.x
@@ -511,8 +739,17 @@ class BasicSpectrum:
 
     def fnu_nu(self, nu):
         """
-        interpolate the spectrum in the form of Fnu at the requested
-        frequencies
+        Interpolate the spectrum in the form of Fnu at the requested
+        frequencies. The spectrum is converted to 'nu', 'fnu' type
+
+        Parameters
+        ----------
+        nu: astropy.units.Quantity or numpy array
+            if nu is a numpy array, it is assumed to be in Hz
+
+        Returns
+        -------
+        Interpolated fnu at the required frequencies.
         """
         self.in_nu()
         self.in_fnu()
@@ -526,8 +763,18 @@ class BasicSpectrum:
 
     def flam_lam(self, lam):
         """
-        interpolate the spectrum in the form of Flam at the requested
-        wavelengths
+        Interpolate the spectrum in the form of Flam at the requested
+        wavelengths. The spectrum is converted to 'lam', 'flam' type
+
+        Parameters
+        ----------
+        lam: astropy.units.Quantity or numpy array
+            if lam is a numpy array, it is assumed to be in m
+
+        Returns
+        -------
+        Interpolated flam at the required wavelengths.
+
         """
         self.in_lam()
         self.in_flam()
@@ -602,11 +849,15 @@ class SpectrumInterpolator:
 
     >>> from matplotlib import pyplot as plt
     >>> import numpy as np
-    >>> from photometry import passband
+    >>> from photometry import spectrum
     >>> x = np.linspace(5., 15., 11)
-    >>> y = 27 - (x-10.)**2
+    >>> y = np.zeros((3, len(x)))
+    >>> y[0, :] = 27 - (x-10.)**2
+    >>> y[1, :] = 27 - (x-10.)
+    >>> y[2, :] = (x-10.)**2
 
-    >>> fq = passband.PassbandInterpolator(x, y, kind='quadratic')
+    >>> fq = spectrum.SpectrumInterpolator(x, y, kind='quadratic',
+    extrapolate=True)
 
     >>> xn = np.arange(21)+0.5
     >>> yq = fq(xn)
@@ -617,11 +868,11 @@ class SpectrumInterpolator:
     >>> plt.plot(x, y, 'o', label='Sampled values')
     >>> plt.plot(xn, yq, 'o', label = 'Quadratically interpolated')
 
-    >>> fl = passband.PassbandInterpolator(x, y, kind='linear')
+    >>> fl = spectrum.SpectrumInterpolator(x, y, kind='linear')
     >>> yl = fl(xn)
 
     >>> plt.plot(xn, yl, 'o', label='Linearly interpolated')
-    >>> plt.legend('upper right')
+    >>> plt.legend(loc='upper right')
 
 
     """
@@ -637,42 +888,51 @@ class SpectrumInterpolator:
         self.extrapolate = extrapolate
 
         if kind == 'nearest':
-            raise NotImplementedError('Nearest interpolation not implemeted')
-#            self.x_low = x[0]
-#            self.x_high = x[-1]
-#            self.y = y
-#            self.x_bounds = (x[1:] + x[:-1]) / 2.
-#            self.x_bounds = np.append(self.x_bounds, [x[-1]])
-#            self._call = self.__class__._call_nearest
+            self.x_low = x[0]
+            self.x_high = x[-1]
+            self.y = y
+            self.x_bounds = (x[1:] + x[:-1]) / 2.
+            self.x_bounds = np.append(self.x_bounds, [x[-1]])
+            self._call = self.__class__._call_nearest
         elif kind == 'linear':
-            raise NotImplementedError("Linear  interpolation not implemented")
-#            self.x = x
-#            self.y = y
-#            self.slopes = (y[1:]-y[:-1])/(x[1:]-x[:-1])
-#            self.ordinates = (y[:-1] * x[1:] - y[1:] * x[:-1])/(x[1:]-x[:-1])
-#            self._call = self.__class__._call_linear
+            self.x = x
+            self.y = y
+            if y.ndim == 2:
+                self.slopes = (y[:,1:] - y[:,:-1]) / (x[1:] - x[:-1])
+                self.ordinates = y[:,:-1] - self.slopes * x[:-1]
+            else:
+                self.slopes = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
+                self.ordinates = y[:-1] - self.slopes * x[:-1]
+            self._call = self.__class__._call_linear
         elif kind == 'quadratic':
-            raise NotImplementedError("quadratic interpolation not "
-                                      "implemented")
-#            self.x = x
-#            self.y = y
-#
-#            nx = self.n
-#            xc = np.arange(nx, dtype='int64')
-#            xc[0] = 1
-#            xc[nx-1] = nx-2
-#            xm = xc - 1
-#            xp = xc + 1
-#            discrim = (x[xm] - x[xc]) * (x[xm] - x[xp]) * (x[xp] - x[xc])
-#            zz, = np.where(discrim == 0)
-#            if len(zz) > 0:
-#                raise ValueError("quadratic interpolation: discrimiment has 0 values")
-#            self.b = ((y[xm] - y[xc]) * (x[xm] * x[xm] -x[xp] * x[xp]) -
-#                      ((x[xm] * x[xm] - x[xc] * x[xc]) * (y[xm] - y[xp]))) / discrim
-#            self.c = ((y[xm] - y[xp]) * (x[xm] - x[xc]) -
-#                      (x[xm] - x[xp]) * (y[xm] - y[xc])) / discrim
-#            self.a = y[xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
-#            self._call = self.__class__._call_quadratic
+            self.x = x
+            nx = self.n
+            xc = np.arange(nx, dtype='int64')
+            xc[0] = 1
+            xc[nx-1] = nx-2
+            xm = xc - 1
+            xp = xc + 1
+            discrim = (x[xm] - x[xc]) * (x[xm] - x[xp]) * (x[xp] - x[xc])
+            zz, = np.where(discrim == 0)
+            if len(zz) > 0:
+                raise ValueError("quadratic interpolation: discrimiment has "
+                                 "0 values")
+            if y.ndim == 2:
+                self.b = ((y[:,xm] - y[:,xc]) *
+                          (x[xm] * x[xm] - x[xp] * x[xp]) -
+                          ((x[xm] * x[xm] - x[xc] * x[xc]) *
+                           (y[:, xm] - y[:, xp]))) / discrim
+                self.c = ((y[:, xm] - y[:, xp]) * (x[xm] - x[xc]) -
+                      (x[xm] - x[xp]) * (y[:, xm] - y[:, xc])) / discrim
+                self.a = y[:,xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
+            else:
+                self.b = ((y[xm] - y[xc]) * (x[xm] * x[xm] -x[xp] * x[xp]) -
+                         ((x[xm] * x[xm] - x[xc] * x[xc]) *
+                          (y[xm] - y[xp]))) / discrim
+                self.c = ((y[xm] - y[xp]) * (x[xm] - x[xc]) -
+                          (x[xm] - x[xp]) * (y[xm] - y[xc])) / discrim
+                self.a = y[xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
+            self._call = self.__class__._call_quadratic
         elif kind == 'log-log-linear':
             x = np.log10(x)
             self.x = x
@@ -682,7 +942,7 @@ class SpectrumInterpolator:
                 self.ordinates = y[:,:-1] - self.slopes * x[:-1]
             else:
                 self.slopes = (y[1:]-y[:-1])/(x[1:]-x[:-1])
-                self.ordinates =  y[:-1] - self.slopes * x[:-1]
+                self.ordinates = y[:-1] - self.slopes * x[:-1]
             self._call = self.__class__._call_log_log_linear
         else:
             raise ValueError("Invalid interpolation method: {}".format(kind))
@@ -692,20 +952,60 @@ class SpectrumInterpolator:
 
     def _call_nearest(self, x):
         idx = np.searchsorted(self.x_bounds, x)
-        result = np.zeros(x.shape)
-        bad, = np.where((x < self.x_low) | (x > self.x_high))
-        ok, = np.where((x >= self.x_low) & (x <= self.x_high))
+        if self.y.ndim == 2:
+            result = np.zeros((self.y.shape[0], x.shape[0]))
+        else:
+            result = np.zeros(x.shape)
+        if self.extrapolate:
+            bad = []
+            over, = np.where(idx == len(self.x_bounds))
+            if len(over) > 0:
+                idx[over] = idx[over]-1
+            ok = range(len(idx))
+        else:
+            bad, = np.where((x < self.x_low) | (x > self.x_high))
+            ok, = np.where((x >= self.x_low) & (x <= self.x_high))
         if len(ok) > 0:
-            result[ok] = self.y[idx[ok]]
+            if self.y.ndim == 2:
+                result[:, ok] = self.y[:, idx[ok]]
+            else:
+                result[ok] = self.y[idx[ok]]
+        if len(bad) > 0:
+            if self.y.ndim == 2:
+                result[:, bad] = np.NaN
+            else:
+                result[bad] = np.NaN
+        # Normally, the input spectrum has no negative value, so no need to
+        # check
         return result
 
     def _call_linear(self, x):
         idx = np.digitize(x, self.x)-1
         idx = idx.clip(0, self.n-2)
-        result = np.zeros(x.shape)
-        ok, = np.where((x >= self.x[0]) & (x <= self.x[-1]))
+        if self.slopes.ndim == 2:
+            result = np.zeros((self.y.shape[0], x.shape[0]))
+        else:
+            result = np.zeros(x.shape)
+        if self.extrapolate:
+            bad = []
+            ok = range(len(x))
+        else:
+            ok, = np.where((x >= self.x[0]) & (x <= self.x[-1]))
+            bad = np.where((x < self.x[0]) | (x > self.x[-1]))
         if len(ok) > 0:
-            result[ok] = self.slopes[idx[ok]] * x[ok] + self.ordinates[idx[ok]]
+            if self.slopes.ndim == 2:
+                result[:, ok] = self.slopes[:, idx[ok]] * x[ok] + \
+                                self.ordinates[:, idx[ok]]
+            else:
+                result[ok] = self.slopes[idx[ok]] * x[ok] + \
+                                self.ordinates[idx[ok]]
+        if len(bad) > 0:
+            if self.slopes.ndim == 2:
+                result[:, bad] = np.NaN
+            else:
+                result[bad] = np.NaN
+        # Normally, the input spectrum has no negative value, so no need to
+        # check
         return result
 
     def _call_quadratic(self, z):
@@ -713,24 +1013,35 @@ class SpectrumInterpolator:
         nexti[nexti < 1] = 1
         nexti[nexti >= self.n] = self.n-1
         previ = nexti - 1
-
         distprev = z - self.x[previ]
         distnext = self.x[nexti] - z
         dist = self.x[nexti] - self.x[previ]
-
         # computes the fit
-        res = (distnext * (self.a[previ] + (self.b[previ] +
-                                            z * self.c[previ]) * z) +
-               distprev * (self.a[nexti] + (self.b[nexti] +
-                                            z * self.c[nexti]) * z)) / dist
+        if self.a.ndim == 2:
+            res = (distnext * (self.a[:, previ] + (self.b[:, previ] +
+                                                z * self.c[:, previ]) * z) +
+                   distprev * (self.a[:, nexti] + (self.b[:, nexti] +
+                                                z * self.c[:, nexti]) * z)) / \
+                  dist
 
-        # sets to zero all values outside the range in x,
-        #  as well as negative values
-        oo, = np.where((z < self.x[0]) | (z > self.x[-1]) | (res < 0.))
+        else:
+            res = (distnext * (self.a[previ] + (self.b[previ] +
+                                                z * self.c[previ]) * z) +
+                   distprev * (self.a[nexti] + (self.b[nexti] +
+                                                z * self.c[nexti]) * z)) / dist
 
+        # sets to zero all negative values:
+        oo = np.where(res < 0.)
         if len(oo) > 0:
             res[oo] = 0.
 
+        if not self.extrapolate:
+            oo, = np.where((z < self.x[0]) | (z > self.x[-1]))
+            if len(oo) > 0:
+                if self.a.ndim == 2:
+                    res[:, oo] = np.NaN
+                else:
+                    res[oo] = np.NaN
         return res
 
     def _call_log_log_linear(self, xin):

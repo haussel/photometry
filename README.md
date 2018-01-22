@@ -44,6 +44,13 @@ w1.mag_ab(Vega)
 ```
 
 The notebook directory provides more examples of usage.
+ - nika2_primary_calibrator: run this notebook to provide the primary 
+ calibrator fluxes  for a NIKA2 run.
+ - passband_creation: how to add a passband to the photometry package.
+ - planet_fluxes: how to use the GiantPlanet and Mars class to derive the 
+ flux of a planet at (sub-)mm wavelengths
+ -  submm-atmosphere: how to work with the IramAtmosphere and IramPassband 
+ classes.
 
 ## Provides
 
@@ -52,10 +59,11 @@ It contains the following submodules, all imported by default.
                   submodules
 - passband:       defines the Passband, PassbandHeader and PassbandInterpolator
                   classes
-- spectrum:       defines the BasicSpectrum and the SpectrumInterpolator classes
+- spectrum:       defines the BasicSpectrum, the SpectrumInterpolator and the
+                  GalaxySpectrum classes
 - standards:      define some convenience function to obtain classical spectra.
 - atmosphere:     defines the IramAtmosphere class to handle GILDAS atmosphere models
 - irampassband:   defines the IramPassband class, to handle varying opacity and emission
                   of the sky in the band
-- atmosphere:     defines the IramAtmosphere class, to use GILDAS atmosphere models
-- planets:        define the GiantPlanet class to compute the flux of planets
+- planets:        define the GiantPlanet class to compute the flux of Uranus 
+                  and Neptune and the Mars class for... Mars 

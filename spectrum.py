@@ -3,6 +3,7 @@ __author__ = 'haussel'
 This module provides the following classes:
 - BasicSpectrum: a class to represent one or more spectra
 - SpectrumInterpolator: a class to perform various interpolation
+- GalaxySpectrum : a class to represent galaxy spectra.
 """
 import numpy as np
 import os
@@ -10,8 +11,8 @@ import inspect
 from astropy import units as u
 from astropy.table import Table
 from .phottools import  is_frequency, is_wavelength, is_flam, \
-    is_fnu, quantity_scalar, quantity_1darray, quantity_2darray,\
-    velc, nu_unit, lam_unit, flam_unit, fnu_unit
+    is_fnu, is_flux, quantity_scalar, quantity_1darray, quantity_2darray,\
+    ndarray_1darray,velc , nu_unit, lam_unit, flam_unit, fnu_unit
 
 
 class BasicSpectrum:
@@ -48,9 +49,9 @@ class BasicSpectrum:
         True if y is a spectral irradiance per unit wavelength
     is_fnu: bool
         True if y  is a spectral irradiance per unit frequency
-    scale: float or ndarray
+    yscale: float or ndarray
         scale factor applied to the spectrum
-    shift: float
+    xshift: float
         shift applied to the x array
     interpolation_method: str
         method to interpolate the spectrum. Can be:
@@ -108,8 +109,8 @@ class BasicSpectrum:
     def __init__(self, data=None, name_x=None, names_y=None,
                  x=None, x_type=None, x_unit=None,
                  y=None, y_type=None, y_unit=None,
-                 interpolation_method = 'log-log-linear',
-                 extrapolate = False):
+                 interpolation_method='log-log-linear',
+                 extrapolate=False):
         """
         Initialization. Valid calls are:
 
@@ -172,8 +173,8 @@ class BasicSpectrum:
         self.y_si_unit = None
         self.is_flam = None
         self.is_fnu = None
-        self.factor = 1.0
-        self.shift = 1.0
+        self.yfactor = 1.0
+        self.xshift = 1.0
         self.interpolation_method = None
         self.can_extrapolate = False
         self.interpolation_set = False
@@ -209,8 +210,8 @@ class BasicSpectrum:
         if self.x is not None and self.y is not None:
             self.interpolation_set = self.set_interpolation(
                 interpolation_method, extrapolate=extrapolate)
-            self.factor = np.ones(self.nb)
-            self.shift = 1.0
+            self.yfactor = np.ones(self.nb)
+            self.xshift = 1.0
 
     def _init_from_table(self, data, colname_x=None, colnames_y=None):
         """
@@ -259,7 +260,7 @@ class BasicSpectrum:
                 if colname_y in colnames:
                     if hasattr(data[colname_y], 'unit'):
                         if foundone:
-                            if data[colname_y].unit is foundunit:
+                            if data[colname_y].unit == foundunit:
                                 y = np.vstack((y, data[colname_y].data))
                                 y.unit = foundunit
                             else:
@@ -272,7 +273,7 @@ class BasicSpectrum:
                         else:
                             foundone = True
                             foundunit = data[colname_y].unit
-                            y = data[colname_y].data * data[colname_y].unit
+                            y = data[colname_y].data
                     else:
                         raise ValueError("Table has no unit for column {}".
                                          format(colname_y))
@@ -288,9 +289,9 @@ class BasicSpectrum:
             for colname_y in colnames[1:]:
                 if hasattr(data[colname_y], 'unit'):
                     if foundone:
-                        if data[colname_y].unit is foundunit:
+                        if data[colname_y].unit == foundunit:
                             y = np.vstack((y, data[colname_y].data))
-                            y.unit = foundunit
+#                            y.unit = foundunit
                         else:
                             raise ValueError("column {} has not the same unit "
                                              "({}) as the others cols ({}) ".
@@ -300,10 +301,14 @@ class BasicSpectrum:
                     else:
                         foundone = True
                         foundunit = data[colname_y].unit
-                        y = data[colname_y].data * data[colname_y].unit
+                        y = data[colname_y].data
                 else:
                     raise ValueError("Table has no unit for column {}".
                                      format(colname_y))
+#                print("y.shape={}".format(y.shape))
+#                print("y.unit={}".format(y.unit))
+            y = y * foundunit
+        print('y.shape = {}'.format(y.shape))
         self._init_from_quantities(x,y)
         return None
 
@@ -374,6 +379,21 @@ class BasicSpectrum:
             self.is_fnu = False
             self.org_y_type = 'flam'
             self.org_y_unit = y.unit
+        elif is_flux(y.unit):
+            if self.org_x_type == 'lam':
+                self.org_y_type = 'lamflam'
+                self.org_y_unit = y.unit
+                self.y_si_unit = flam_unit
+                self.is_flam = True
+                self.is_fnu = False
+                y = y / x
+            else:
+                self.org_y_type = 'nufnu'
+                self.org_y_unit = y.unit
+                self.y_si_unit = fnu_unit
+                self.is_flam = False
+                self.is_fnu = True
+                y = y / x
         else:
             raise ValueError('invalid unit {} for input quantity `y`'.
                              format(y.unit))
@@ -458,11 +478,15 @@ class BasicSpectrum:
                 if not is_fnu(yunit):
                     raise ValueError('incompatible `y_type`:{} and '
                                      '`y_unit`:{}'.format(y_type, y_unit))
+            elif y_type == 'flux':
+                if not is_flux(yunit):
+                    raise ValueError('incompatible `y_type`:{} and '
+                                     '`y_unit`:{}'.format(y_type, y_unit))
             else:
                 raise ValueError('invalid `y_type`: {}'.format(y_type))
         else:
-            raise ValueError('Invalid type for `x_unit`: {}'.
-                             format(type(x_unit)))
+            raise ValueError('Invalid type for `y_unit`: {}'.
+                             format(type(y_unit)))
 
         if isinstance(y, u.Quantity):
             if y.unit is not yunit:
@@ -523,15 +547,26 @@ class BasicSpectrum:
         -------
         None
         """
-        self.y *= factor
-        self.factor *= factor
+        # Ensure factor has no unit
+        if isinstance(factor, u.Quantity):
+            wfactor = factor.value
+        else:
+            wfactor = factor
+        msg = ndarray_1darray(factor, length=self.nb)
+        if msg is None:
+            # factor is a 1D array
+            self.y = self.y * wfactor[:, np.newaxis]
+        else:
+
+            self.y *= wfactor
+        self.yfactor *= factor
         return None
 
     def unscale(self):
         """
         Remove any scaling
         """
-        factor = 1./self.factor
+        factor = 1./self.yfactor
         self.scale(factor)
 
     def shift(self, factor):
@@ -547,15 +582,20 @@ class BasicSpectrum:
         -------
         None
         """
-        self.x *= factor
-        self.shift *= factor
+        # ensure factor has no unit.
+        if isinstance(factor, u.Quantity):
+            wfactor = factor.value
+        else:
+            wfactor = factor
+        self.x *= wfactor
+        self.xshift *= wfactor
         return None
 
     def unshift(self):
         """
         Remove the shift in x
         """
-        factor = 1./self.shift
+        factor = 1./self.xshift
         self.shift(factor)
 
 
@@ -688,6 +728,7 @@ class BasicSpectrum:
             self.is_lam = False
             self.is_nu = True
             self.x_si_unit = nu_unit
+            self.xshift = 1./self.xshift
             self.interpolation_set = False
         return None
 
@@ -705,6 +746,7 @@ class BasicSpectrum:
             self.is_nu = False
             self.x_si_unit = lam_unit
             self.interpolation_set = False
+            self.xshift = 1./self.xshift
         return None
 
     def in_flam(self):
@@ -1066,4 +1108,67 @@ class SpectrumInterpolator:
         return 10.**result
 
 
+class GalaxySpectrum(BasicSpectrum):
+    """
+    A class to represent spectra of galaxies. It inherits BasicSpectrum and
+    allows to take into account the redshift.
+    """
+    def __init__(self, z=None, cosmo=None, dl=None,
+                 data=None, name_x=None, names_y=None,
+                 x=None, x_type=None, x_unit=None,
+                 y=None, y_type=None, y_unit=None,
+                 interpolation_method='log-log-linear',
+                 extrapolate=False):
 
+        BasicSpectrum.__init__(self, data=data, name_x=name_x, names_y=names_y,
+                               x=x, x_type=x_type, x_unit=x_unit,
+                               y=y, y_type=y_type, y_unit=y_unit,
+                               interpolation_method=interpolation_method,
+                               extrapolate=extrapolate)
+
+
+        self.z = z
+        self.cosmo = cosmo
+        if dl is None:
+            self.dl = cosmo.luminosity_distance(z)
+        else:
+            self.dl = dl
+
+    def __str__(self):
+        result = "***** BasicSpectrum:\n" + BasicSpectrum.__str__(self)
+        result += "\n***** GalaxySpectrum:"
+        result += "\n   z = {}".format(self.z)
+        result += "\n   dl = {}".format(self.dl)
+        result += "\n   with cosmology = {}".format(self.cosmo)
+        return result
+
+    def redshift(self, redshift):
+        """
+        redshift the spectrum  to z
+
+        Parameters
+        ----------
+        redshift: float
+        """
+        dl = self.cosmo.luminosity_distance(redshift)
+        if self.is_nu:
+            old_shift = 1. / (1. + self.z)
+            new_shift = 1./(1. + redshift)
+        elif self.is_lam:
+            old_shift = 1. + self.z
+            new_shift = 1. + redshift
+        else:
+            raise ValueError("Spectrum type is neither nu or lam")
+        if self.is_fnu:
+            old_fact = (1. + self.z) / 4. / np.pi / self.dl**2
+            new_fact = (1. + redshift) / 4. / np.pi / dl**2
+        elif self.is_flam:
+            old_fact = 1./(1. + self.z) / 4. / np.pi / self.dl**2
+            new_fact = 1./ (1. + redshift) / 4. / np.pi / dl**2
+        else:
+            raise ValueError("Spectrum is neither fnu or flam")
+
+        self.shift(new_shift / old_shift)
+        self.scale((new_fact / old_fact).value)
+        self.z = redshift
+        self.dl = dl

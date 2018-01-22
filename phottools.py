@@ -108,6 +108,19 @@ def is_flux(unit):
         result = False
     return result
 
+def is_lum(unit):
+    """
+    Check a unit is a luminosity
+    :param unit: astropy.unit
+    :return: True / False
+    """
+    try:
+        unit.to(u.W)
+        result = True
+    except:
+        result = False
+    return result
+
 
 def quantity_scalar(x):
     """

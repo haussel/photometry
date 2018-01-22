@@ -18,7 +18,7 @@ from astropy import units as u
 from .phottools import is_wavelength, is_frequency, quantity_scalar, \
     quantity_1darray, ndarray_1darray, velc, nu_unit, lam_unit, flam_unit, \
     fnu_unit, nufnu_unit
-from .spectrum import BasicSpectrum
+from .spectrum import BasicSpectrum, GalaxySpectrum
 from .config import DEBUG
 
 
@@ -356,7 +356,9 @@ class Passband:
         if 'xref' not in phd.content:
             raise ValueError('Missing keyword xref in header')
         try:
-            xrefval = float(phd.content['xref']) * x_unit
+            xrefval = u.Quantity(phd.content['xref'])
+            if xrefval.unit == u.dimensionless_unscaled:
+                xrefval = xrefval * x_unit
         except:
             raise ValueError('Invalid key value for xref in header: {}'.
                              format(phd.content['xref']))
@@ -387,7 +389,6 @@ class Passband:
             xv = x
         else:
             xv = x * x_unit
-
         result = self._init_from_quantities(xv, y, xrefval, ytype, header=phd)
         return result
 
@@ -495,7 +496,8 @@ class Passband:
                 raise ValueError("org_x_type is not set !")
             else:
                 if self.org_x_type != self.header.content['xtype']:
-                    # TODO get rid of this annoying warning with files where wavelength is indicated with lam
+                    # TODO get rid of this annoying warning with files where
+                    # wavelength is indicated with lam
                     if self.nowarn:
                         print("Warning xtype does not match between\n"
                               "header: {}\nobject: {}"
@@ -527,7 +529,7 @@ class Passband:
             if self.org_x_ref is None:
                 raise ValueError("org_x_ref is not set !")
             else:
-                if self.org_x_ref != float(self.header.content['xref']):
+                if self.org_x_ref != u.Quantity(self.header.content['xref']):
                     if self.nowarn:
                         print("Warning xref does not match between\n"
                               "header: {}\nobject: {}"
@@ -536,6 +538,11 @@ class Passband:
 
     def __str__(self):
         result = "{}".format(self.header)
+        result += "\nInternal settings:\n"
+        result += "    location method: {}\n".format(self.location_method)
+        result += "    interpolation method: {}\n".\
+            format(self.interpolate_method)
+        result += "    integration method: {}\n".format(self.integration_method)
         return result
 
     def set_location(self, location):
@@ -684,6 +691,9 @@ class Passband:
         return integrate.simps(y, x=x, axis=-1)
 
     def response(self):
+        """
+        returns the passband y values
+        """
         return self.y
 
     def nu(self, unit):
@@ -1220,20 +1230,117 @@ class Passband:
         msg = quantity_1darray(xarr)
         if msg:
             raise ValueError("xarr"+msg)
-        lowlims = np.copy(xarr.value)
-        lowlims[1:] = 0.5*(xarr[1:].value + xarr[0:-1].value)
-        highlims = np.copy(xarr.value)
-        highlims[0:-1] = lowlims[1:]
+        if self.is_qe:
+            ytype='qe'
+        else:
+            ytype='rsr'
+
+        lims = np.copy(xarr.value)
+        lims[1:] = 0.5 * (xarr[1:].value + xarr[0:-1].value)
+        lims = np.append(lims, xarr[-1].value)
+        allx = self._interpolate_both_spectrum_and_passband(lims, self.x)
+        ally = self.interpolate(allx)
         weights = np.zeros(xarr.shape)
-        for i, low in enumerate(lowlims):
-            high = highlims[i]
-            bit = tophat(np.array([low, high]) * xarr.unit)
-            slice = self.combine(bit)
-            weights[i] = slice.flux(spectrum).value
-        return weights/np.sum(weights)
+        for i in range(xarr.shape[0]):
+            idx, = np.where((allx >= lims[i]) & (allx <= lims[i+1]))
+            if len(idx)<2:
+                weights[i] = 0
+            else:
+                result = Passband(x=lims[idx], y=ally[idx],
+                                  xref= 0.5*(lims[idx[0]]+lims[idx[-1]]),
+                                  ytype=ytype,
+                                  interpolation='linear',
+                                  integration='trapezoidal',
+                                  nowarn=True)
+                weights[i] = result.flux(spectrum)
+        return weights / np.sum(weights)
 
 
+#        lowlims = np.copy(xarr.value)
+#        lowlims[1:] = 0.5*(xarr[1:].value + xarr[0:-1].value)
+#        highlims = np.copy(xarr.value)
+#        highlims[0:-1] = lowlims[1:]
+#        weights = np.zeros(xarr.shape)
+#        for i, low in enumerate(lowlims):
+#            high = highlims[i]
+#            bit = tophat(np.array([low, high]) * xarr.unit)
+#            slice = self.combine(bit)
+#            weights[i] = slice.flux(spectrum).value
+#        return weights/np.sum(weights)
 
+
+    def shift_passband(self, shift_factor):
+        """
+        Shift the passband (and not the atmosphere), by multiplying the
+        frequency array by shift_factor.
+
+        Parameters:
+        -----------
+        shift_factor: float
+
+        """
+        self.x = self.x * shift_factor
+        try:
+            self.shift = self.shift * shift_factor
+        except:
+            self.shift = shift_factor
+        self.set_interpolation(self.interpolate_method)
+
+
+    def unshift_passband(self):
+        """
+        Unshift a passband
+        """
+        try:
+            shift_factor = 1./self.shift
+        except:
+            print("Passband is not shifted")
+            shift_factor = 1.
+        self.shift_passband(shift_factor)
+
+
+    def offset_passband(self, offset):
+        """
+        Shift the passband (and not the atmosphere), by adding the offset to
+        the frequencies
+
+        Parameters:
+        -----------
+        offset: astropy.unit.Quantity
+
+        """
+        self.x  = self.x + offset.to(self.x_si_unit).value
+        try:
+            self.offset = self.offset + offset
+        except:
+            self.offset = offset
+        self.set_interpolation(self.interpolate_method)
+
+
+    def unoffset_passband(self):
+        """
+        Unshift a passband
+        """
+        try:
+            offset = -self.offset
+        except:
+            print("Passband is not offsetted")
+            if self.is_nu:
+                offset = 0. * u.Hz
+            else:
+                offset = 0. * u.m
+        self.offset_passband(offset)
+
+    def distort_passband(self, alpha):
+        """
+        Distort a passband by multiplying it by (x/x_ref)**alpha
+
+        Parameter:
+        alpha: float
+        """
+        self.y = self.y * (self.x / self.x_ref)**alpha
+        self.y = self.y / np.max(self.y)
+        self.set_interpolation(self.interpolate_method)
 
 
 
@@ -1283,6 +1390,24 @@ class PassbandHeader:
             self.content[wcard] = self.content[wcard] + '\n{}'.format(value)
         else:
             self.content[wcard] = '{}'.format(value)
+
+    def edit_card_value(self, card, value):
+        """
+        Edit the value of keyword value pair in the header.
+
+        Parameters
+        ----------
+        card: str
+          name of the card
+        value: any
+          value is formatted to string.
+        """
+        if not isinstance(card, str):
+            wcard = str(card)
+        else:
+            wcard = card
+        self.content[wcard] = '{}'.format(value)
+
 
     def import_line(self, line):
         """
@@ -1348,6 +1473,7 @@ class PassbandHeader:
                 result += '\n{}'.format(self.format_card(k, v))
             result += '\n############### End of Header #################'
         return result
+
 
 
 class PassbandInterpolator:
@@ -1521,9 +1647,12 @@ def tophat(xlims, ytype='rsr'):
     msg = quantity_1darray(xlims, length=2)
     if msg:
         raise ValueError("xlims" + msg)
+#    xvals = np.array([xlims[0].value*(1.-1e-10), xlims[0].value,
+        # xlims[1].value,
+#                    xlims[1].value*(1.+1e-10)])*xlims.unit
     yvals = np.array([1.,1.])
     result = Passband(x=xlims, y=yvals, xref=0.5*np.sum(xlims), ytype=ytype,
-                      interpolation='linear', nowarn=True)
+                      interpolation='nearest', nowarn=True)
     return result
 
 

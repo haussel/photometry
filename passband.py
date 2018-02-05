@@ -15,14 +15,16 @@ import inspect
 import numpy as np
 from scipy import integrate
 from astropy import units as u
+from .photcurve import PhotCurve
 from .phottools import is_wavelength, is_frequency, quantity_scalar, \
     quantity_1darray, ndarray_1darray, velc, nu_unit, lam_unit, flam_unit, \
-    fnu_unit, nufnu_unit
+    fnu_unit, nufnu_unit, PhotometryInterpolator, PhotometryHeader, \
+    read_photometry_file, write_photometry_file
 from .spectrum import BasicSpectrum, GalaxySpectrum
 from .config import DEBUG
 
 
-class Passband:
+class Passband(PhotCurve):
     """
     A class to perform synthetic photometry.
 
@@ -31,9 +33,9 @@ class Passband:
 
     import photometry as pt
     from astropy import units as u
-    pb = Passband(file=my_passband_file)
-    sp = BasicSpectrum(x=my_array_of_frequencies_or_wavelength,
-                       y=my_arrays_of_fnu_or_flams)
+    pb = pt.Passband(file=my_passband_file)
+    sp = pt.BasicSpectrum(x=my_array_of_frequencies_or_wavelength,
+                          y=my_arrays_of_fnu_or_flams)
     mymag = pb.mag_ab(sp)
     myfnu = pb.fnu_ir(sp)
     bandwidth = pb.bandwidth(u.micron)
@@ -55,6 +57,7 @@ class Passband:
     """
     # Initialization Methods
     def __init__(self, file=None, x=None, y=None, xref=None, ytype=None,
+                 table=None, colname_x=None, colnames_y=None,
                  header=None, location='both_spectrum_and_passband',
                  interpolation='quadratic', integration='trapezoidal',
                  nowarn=False):
@@ -86,7 +89,7 @@ class Passband:
             reference frequency or wavelength for the passband
         ytype: str
             type of transmission: 'qe' or 'rsr'
-        header: PassbandHeader or dict or array of str
+        header: PhotometryHeader or dict or array of str
             the header of the passband
         location: str
             defines where passband and spectra are interpolated. Defaulted to 
@@ -102,31 +105,20 @@ class Passband:
             If set to True, no warning message of incomplete information is
             given
 
-        Attributes:
-        -----------
-        header: PassbandHeader
+        Attributes inherited from PhotCurve:
+        ------------------------------------
+        header: PhotometryHeader
             A special dictionary containing non crucial information about the
             passband
         file: str
             The name of the file containing the passband
-        instrument: str
-            The name of the instrument the passband applies to
-        filter: str
-            The name of the filter
         org_x_type: str
             The original type of the passband. Can be 'lam' or 'nu'
         org_x_unit: astropy.unit
             The original unit of the passband
-        org_y_type: str
-            The original type of the passband. Can be 'qe' or 'rsr'
-        org_x_ref: float
-            The original reference
         x : (N, ) numpy.ndarray
             The abscissa values. Can be frequency or wavelength,
             always in SI unit (x_si_unit)
-        x_ref: float
-            The reference frequency or wavelength for the passband in
-            units of x_si_unit.
         x_si_unit: astropy.unit
             The unit for x and x_ref
         is_lam : boolean
@@ -136,6 +128,43 @@ class Passband:
         y: (N,) numpy.ndarray
             the passband rsr (relative system response) or qe (quantum
             efficiency)
+        interpolate_method: str
+            method to interpolate the values of the passband. Can be
+            - 'nearest' : nearest neighbor
+            - 'linear'  : linear
+            - 'quadratic' : piecewize quadratic
+        interpolate_set: boolean
+            True is the interpolation function is set
+        interpolate: PassbandInterpolator
+            Returns the inrterpolated values of y at requested x.
+        integration_method: str
+            the method used for numerical integration. Can be:
+            - 'trapezoidal'
+            - 'simpson'
+        integrate_set: boolean
+            True if the integration method is set.
+        integrate: function
+            The function that performs the integration
+        yfactor: float
+            scaling factor applied to y
+        xshift: float
+            scaling factor applied to x
+        initialized: bool
+            True if properly initialized
+
+        Attributes specific to Passband
+        --------------------------------
+        instrument: str
+            The name of the instrument the passband applies to
+        filter: str
+            The name of the filter
+        org_y_type: str
+            The original type of the passband. Can be 'qe' or 'rsr'
+        org_x_ref: float
+            The original reference
+        x_ref: float
+            The reference frequency or wavelength for the passband in
+            units of x_si_unit.
         is_qe: boolean
             True if the passband is a quantum efficiency
         is_rsr: boolean
@@ -170,89 +199,34 @@ class Passband:
             The function that performs the integration
         ready: Boolean
             True if the passband is ready for use.
-        initialized: Boolean
-            True if enough inputs have been provided to initialized a passband  
-
         """
-        self.header = PassbandHeader()
-        self.file = None
+        super().__init__(file=file, x=x, y=y, table=table, colname_x=colname_x,
+                         colnames_y=colnames_y, header=header,
+                         interpolation=interpolation, integration=integration)
+
         self.instrument = None
         self.filter = None
-        self.org_x_type = None
-        self.org_x_unit = None
+        self.xref = None
         self.org_y_type = None
         self.org_x_ref = None
-        self.x = None
-        self.x_ref = None
-        self.x_si_unit = None
-        self.is_lam = False
-        self.is_nu = False
-        self.y = None
-        self.is_qe = False
-        self.is_rsr = False
+        self.is_qe = None
+        self.is_rsr = None
+        self.location_method  = None
         self.location_method = None
-        self.location_set = False
-        self.location = None
-        self.interpolate_method = None
-        self.interpolate_set = None
-        self.interpolate = None
-        self.integrate_set = None
-        self.integration_method = None
-        self.integrate = None
-        self.ready = False
-        self.intialized = False
-        self.nowarn = False
-
         self.nowarn = nowarn
 
-        if file is not None:
-            if ((x is None) and (y is None) and (xref is None) and
-                (y is None) and (ytype is None) and (header is None)):
-                self.initialized = self.read(file)
+        if self.nb != 1:
+            raise NotImplementedError('Cannot have multiple passbands')
+
+        # in case we had quantities for y
+        if isinstance(self.y, u.Quantity):
+            self.y = self.y.value
+
+        if ytype is None:
+            if 'ytype' not in self.header:
+                raise ValueError('`ytype` is undefined for Passband')
             else:
-                raise ValueError("Cannot set both file and x, y values")
-        elif ((x is not None) and (y is not None) and (xref is not None) and
-            (ytype is not None)):
-            self.initialized = self._init_from_quantities(x, y, xref, ytype,
-                                                          header=header)
-        elif x is not None and y is not None and header is not None:
-            self.initialized = self._init_from_header(x, y, header)
-        else:
-            pass
-
-        if not self.initialized:
-            raise ValueError("Insufficient data to initialize passband")
-        else:
-            self.set_location(location)
-            self.set_interpolation(interpolation)
-            self.set_integration(integration)
-
-        self.fill_header()
-
-        if self.initialized and self.location_set and self.interpolate_set and\
-                self.integrate_set:
-            self.ready = True
-        else:
-            self.ready = False
-
-    def _init_from_quantities(self, x, y, xref, ytype, header=None):
-        result = False
-        # check x
-        msg = quantity_1darray(x)
-        if msg is not None:
-            raise ValueError("`x`" + msg)
-        # check xref
-        msg = quantity_scalar(xref)
-        if msg is not None:
-            raise ValueError("`xref`" + msg)
-        # check y
-        msg = ndarray_1darray(y, length=len(x), other='x')
-        if msg is not None:
-            raise ValueError("`y`" + msg)
-        # check ytype
-        if not isinstance(ytype, str):
-            raise ValueError('Invalid ytype {}'.format(ytype))
-
+                ytype = self.header['ytype']
         if ytype.lower() == 'rsr':
             self.is_rsr = True
             self.is_qe = False
@@ -264,30 +238,15 @@ class Passband:
         else:
             raise ValueError('Invalid value {} for `ytype`'.format(ytype))
 
-        if is_frequency(x.unit):
-            self.is_nu = True
-            self.is_lam = False
-            self.x_si_unit = nu_unit
-            self.org_x_type = 'nu'
-            self.org_x_unit = x.unit
-        elif is_wavelength(x.unit):
-            self.is_lam = True
-            self.is_nu = False
-            self.x_si_unit = lam_unit
-            self.org_x_type = 'lam'
-            self.org_x_unit = x.unit
-        else:
-            raise ValueError('invalid unit {} for input quantity `x`'.
-                             format(x.unit))
-        xv = x.to(self.x_si_unit).value
-        idx = np.argsort(xv)
-        self.y = y[idx]
-        self.x = xv[idx]
+        if xref is None:
+            if 'xref' not in self.header:
+                raise ValueError('Undefined xref')
+            else:
+                xref = u.Quantity(self.header['xref'])
 
-        idx, = np.where(self.y < 0)
-        if len(idx) > 0:
-            print("Negative passband value have been set to zero")
-            self.y[idx] = 0.
+        msg = quantity_scalar(xref)
+        if msg is not None:
+            raise ValueError("`xref`" + msg)
 
         self.org_x_ref = xref.value
         if is_frequency(xref.unit):
@@ -304,132 +263,16 @@ class Passband:
             raise ValueError('`xref` unit {}'.format(xref.unit) +
                              'must be a wavelength or a frequency unit')
 
-        # copy the header values
-        if header is not None:
-            if isinstance(header, PassbandHeader):
-                self.header = header
-            elif isinstance(header, dict):
-                self.header.import_dict(header)
-            elif isinstance(header, list):
-                for elem in header:
-                    self.header.import_line(elem)
-            else:
-                raise ValueError('Invalid type for header')
-        result = True
-        return result
+        self.set_location(location)
 
-    def _init_from_header(self, x, y, header):
-        result = False
-        # ingest the header
-        if not isinstance(header, PassbandHeader):
-            phd = PassbandHeader()
-            if isinstance(header, dict):
-                phd.import_dict(header)
-            elif isinstance(header, list):
-                for elem in header:
-                    phd.import_line(elem)
-            else:
-                raise ValueError('Invalid type for header')
+        self.fill_header()
+
+        if self.initialized and self.location_set and self.interpolate_set and \
+                self.integrate_set:
+            self.ready = True
         else:
-            phd = header
-        if 'xunit' not in phd.content:
-            raise ValueError('Missing keyword xunit in header')
-        try:
-            x_unit = u.Unit(phd.content['xunit'])
-        except:
-            raise ValueError('Invalid `xunit` {}'.format(phd.content['xunit']))
-        # xtype
-        if 'xtype' not in phd.content:
-            raise ValueError('Missing keyword xtype in header')
-        if phd.content['xtype'].lower() == 'lam' or \
-            phd.content['xtype'].lower() == 'wave' or \
-            phd.content['xtype'].lower() == 'wavelength':
-            xtype = 'lam'
-        elif phd.content['xtype'].lower() == 'nu' or \
-            phd.content['xtype'].lower() == 'freq' or \
-            phd.content['xtype'].lower() == 'frequency':
-            xtype = 'nu'
-        else:
-            raise ValueError('Invalid key value for xtype in header: {}'.
-                             format(phd.content['xtype']))
-        # xref
-        if 'xref' not in phd.content:
-            raise ValueError('Missing keyword xref in header')
-        try:
-            xrefval = u.Quantity(phd.content['xref'])
-            if xrefval.unit == u.dimensionless_unscaled:
-                xrefval = xrefval * x_unit
-        except:
-            raise ValueError('Invalid key value for xref in header: {}'.
-                             format(phd.content['xref']))
+            self.ready = False
 
-        # ytype
-        if 'ytype' not in phd.content:
-            raise ValueError('Missing keyword ytype in header')
-        if phd.content['ytype'].lower() == 'rsr':
-            ytype = 'rsr'
-        elif phd.content['ytype'].lower() == 'qe':
-            ytype = 'qe'
-        else:
-            raise ValueError('Invalid key value for ytype in header: {}'.
-                             format(phd.content['ytype']))
-
-        # check x
-        msg = ndarray_1darray(x)
-        if msg is not None:
-            raise ValueError("`x`" + msg)
-        # check y
-        msg = ndarray_1darray(y, length = len(x), other = 'x')
-        if msg is not None:
-            raise ValueError("`y`" + msg)
-
-        if isinstance(x, u.Quantity):
-            if x.unit is not x_unit:
-                raise ValueError('`x` and `xunit` key in header are different')
-            xv = x
-        else:
-            xv = x * x_unit
-        result = self._init_from_quantities(xv, y, xrefval, ytype, header=phd)
-        return result
-
-    def read(self, filename):
-        """
-        Read a passband from a file
-
-        Parameters
-        ----------
-        filename: str
-          The name of the file. If the file is not found, the passband is
-          searched for in the data/passbands/ directory of the installation of
-          the photometry package. For this it assumes that the filename follows
-          the convention: filtername.instrumentname.pb.
-        """
-        result = False
-        classpath = inspect.getfile(self.__class__)
-        basepath = os.path.dirname(classpath)
-        default_passband_dir = os.path.join(basepath, 'data/passbands/')
-        if not os.path.exists(filename):
-            head, tail = os.path.split(filename)
-            (band, instrument, ext) = tail.split('.')
-            path = os.path.join(default_passband_dir, instrument)
-            full_filename = os.path.join(path, filename)
-            if not os.path.exists(full_filename):
-                raise IOError("file not found '{}'".format(full_filename))
-        else:
-            full_filename = filename
-        # read the file. first the values, then browse the header
-        values = np.genfromtxt(full_filename, comments='#',
-                               dtype='float64', names=['x', 'y'])
-        f = open(full_filename, 'r')
-        line = f.readline()
-        sheader = []
-        while line[0] == '#':
-            sheader.append(line)
-            line = f.readline()
-        f.close()
-#        sheader.append('# file: '+ filename)
-        result = self._init_from_header(values['x'], values['y'], sheader)
-        return result
 
     def fill_header(self):
         """
@@ -437,7 +280,7 @@ class Passband:
         and add them to the header in order to facilitate writing the passband
         to file if needed.
         """
-        if 'file' not in self.header.content:
+        if 'file' not in self.header:
             if self.file is not None:
                 self.header.add_card_value('file', self.file)
             else:
@@ -445,7 +288,7 @@ class Passband:
                     print("Warning ! file needs to be set")
         else:
             if self.file is None:
-                self.file = self.header.content['file']
+                self.file = self.header['file']
             else:
                 if self.file != self.header.content['file']:
                     if not self.nowarn:
@@ -453,7 +296,7 @@ class Passband:
                               "{}\nobject: {}"
                           .format(self.header.content['file'], self.file))
 
-        if 'instrument' not in self.header.content:
+        if 'instrument' not in self.header:
             if self.instrument is not None:
                 self.header.add_card_value('instrument', self.instrument)
             else:
@@ -461,16 +304,16 @@ class Passband:
                     print("Warning ! instrument needs to be set")
         else:
             if self.instrument is None:
-                self.instrument = self.header.content['instrument']
+                self.instrument = self.header['instrument']
             else:
-                if self.instrument != self.header.content['instrument']:
+                if self.instrument != self.header['instrument']:
                     if not self.nowarn:
                         print("Warning instrument does not match between\n"
                               "header: {}\nobject: {}"
-                          .format(self.header.content['instrument'],
+                          .format(self.header['instrument'],
                                   self.instrument))
 
-        if 'filter' not in self.header.content:
+        if 'filter' not in self.header:
             if self.filter is not None:
                 self.header.add_card_value('filter', self.filter)
             else:
@@ -478,7 +321,7 @@ class Passband:
                     print("Warning ! filter needs to be set")
         else:
             if self.filter is None:
-                self.filter = self.header.content['filter']
+                self.filter = self.header['filter']
             else:
                 if self.filter != self.header.content['filter']:
                     if not self.nowarn:
@@ -495,16 +338,16 @@ class Passband:
             if self.org_x_type is None:
                 raise ValueError("org_x_type is not set !")
             else:
-                if self.org_x_type != self.header.content['xtype']:
+                if self.org_x_type != self.header['xtype']:
                     # TODO get rid of this annoying warning with files where
                     # wavelength is indicated with lam
                     if self.nowarn:
                         print("Warning xtype does not match between\n"
                               "header: {}\nobject: {}"
-                            .format(self.header.content['xtype'],
+                            .format(self.header['xtype'],
                                     self.org_x_type))
 
-        if 'ytype' not in self.header.content:
+        if 'ytype' not in self.header:
             if self.org_y_type is not None:
                 self.header.add_card_value('ytype', self.org_y_type)
             else:
@@ -513,14 +356,14 @@ class Passband:
             if self.org_y_type is None:
                 raise ValueError("org_y_type is not set !")
             else:
-                if self.org_y_type != self.header.content['ytype']:
+                if self.org_y_type != self.header['ytype']:
                     if self.nowarn:
                         print("Warning ytype does not match between\n"
                               "header: {}\nobject: {}"
-                            .format(self.header.content['ytype'],
+                            .format(self.header['ytype'],
                                     self.org_y_type))
 
-        if 'xref' not in self.header.content:
+        if 'xref' not in self.header:
             if self.org_x_ref is not None:
                 self.header.add_card_value('xref', self.org_x_ref)
             else:
@@ -529,11 +372,11 @@ class Passband:
             if self.org_x_ref is None:
                 raise ValueError("org_x_ref is not set !")
             else:
-                if self.org_x_ref != u.Quantity(self.header.content['xref']):
+                if self.org_x_ref != u.Quantity(self.header['xref']):
                     if self.nowarn:
                         print("Warning xref does not match between\n"
                               "header: {}\nobject: {}"
-                            .format(self.header.content['xref'],
+                            .format(self.header['xref'],
                                     self.org_x_ref))
 
     def __str__(self):
@@ -621,130 +464,12 @@ class Passband:
             result = xs
         return xs
 
-    def set_interpolation(self, interpolation):
-        """
-        Sets the interpolation method of the passband.
-
-
-        Parameters
-        ----------
-        interpolation: str
-            the chosen interpolation method. Can be
-            - 'nearest': nearest point interpolation
-            - 'linear': linear interpolation
-            - 'quadratic': polynomial of order 2 interpolation
-
-        Effects
-        -------
-        Sets the value of the following attributes:
-         - interpolate: the function performing the interpolation
-         - interpolate_method: the name of the method
-         - interpolate_set: flag indicating whether the passband is ready to
-           interpolate.
-
-        """
-        try:
-            self.interpolate = PassbandInterpolator(self.x, self.y,
-                                                    interpolation)
-            result = True
-        except:
-            print("Problem setting interpolation with {}".\
-                  format(interpolation))
-            result = False
-        if result == True:
-            self.interpolate_method = interpolation
-            self.interpolate_set = True
-        return result
-
-    def set_integration(self, method_name):
-        """
-        select the integration method in the passband
-
-        Parameters
-        ----------
-        method_name: str
-          Can be any of the two methods:
-          - trapezoidal : use numpy.trapz
-          - simpson     : use numpy.simps
-        """
-        result = True
-        try:
-            if method_name == 'trapezoidal':
-                self.integrate = self._integrate_trapezoidal
-            elif method_name == 'simpson':
-                self.integrate = self._integrate_simpson
-            else:
-                print("invalid integration method {}".format(method_name))
-                result = False
-        except:
-            print("invalid integration method {}".format(method_name))
-            result = False
-        if result == True:
-            self.integration_method = method_name
-            self.integrate_set = True
-        return result
-
-    def _integrate_trapezoidal(self, y, x):
-        return np.trapz(y, x=x, axis=-1)
-
-    def _integrate_simpson(self, y, x):
-        return integrate.simps(y, x=x, axis=-1)
-
     def response(self):
         """
         returns the passband y values
         """
         return self.y
 
-    def nu(self, unit):
-        """
-        return the passband frequency in unit. Raise an exception if the 
-        passband is as a function of wavelength
-        
-        Parameters:
-        -----------
-        unit: astropy.unit
-            The frequency unit
-
-        Returns:
-        --------
-        the x of the passband in the requested unit.
-        """
-        if DEBUG:
-            print('Passband.nu()')
-        if self.is_nu:
-            if is_frequency(unit):
-                result = (self.x * self.x_si_unit).to(unit)
-            else:
-                raise ValueError("Invalid output unit {} for passband in "
-                                 "frequency".format(unit))
-        else:
-            raise ValueError('Convert your passband to frequency first')
-        return result
-
-    def lam(self, unit):
-        """
-        return the passband wavelength in unit. Raise an exception if the 
-        passband is as a function of frequency
-        
-        Parameters:
-        -----------
-        unit: astropy.unit
-            The wavelength unit
-
-        Returns:
-        --------
-        the x of the passband in the requested unit.
-        """
-        if self.is_lam:
-            if is_wavelength(unit):
-                result = (self.x * self.x_si_unit).to(unit)
-            else:
-                raise ValueError("Invalid output unit {} for passband in "
-                                 "wavelength".format(unit))
-        else:
-            raise ValueError('Convert your passband to wavelength first')
-        return result
 
     def in_nu(self):
         """
@@ -762,14 +487,7 @@ class Passband:
         - interpolate: the interpolation method is been recomputed.
 
         """
-        if self.is_lam:
-            self.x = ((velc / self.x.copy())[::-1])
-            self.x_ref = velc / self.x_ref
-            self.x_si_unit = nu_unit
-            self.y = self.y.copy()[::-1]
-            self.set_interpolation(self.interpolate_method)
-            self.is_lam = False
-            self.is_nu = True
+        super().in_nu(reinterpolate=True)
         return None
 
     def in_lam(self):
@@ -787,14 +505,7 @@ class Passband:
         - is_lam: True
         - interpolate: the interpolation is being recomputed
         """
-        if self.is_nu:
-            self.x = ((velc / self.x.copy())[::-1])
-            self.x_si_unit = lam_unit
-            self.x_ref = velc / self.x_ref
-            self.y = self.y.copy()[::-1]
-            self.set_interpolation(self.interpolate_method)
-            self.is_lam = True
-            self.is_nu = False
+        super().in_lam(reinterpolate=True)
         return None
 
     def fnu_ab(self, spectrum):
@@ -1097,8 +808,21 @@ class Passband:
                           ytype=restype, nowarn=True)
         return result
 
+    def default_dir(self):
+        """
+        Returns the default directory where passband files are located
+        """
+        if 'instrument' not in self.header:
+            raise ValueError('instrument is not set in header')
+        instrument = self.header['instrument']
+        classpath = inspect.getfile(self.__class__)
+        basepath = os.path.dirname(classpath)
+        default_passband_dir = os.path.join(basepath, 'data/passbands/')
+        return os.path.join(default_passband_dir, instrument + '/')
 
-    def write(self, xunit, dir=None, overwrite=False, force=False):
+
+    def write(self, xunit, dir=None, overwrite=False, force=False,
+              xfmt=':> 0.6f', yfmt=':>0.6f'):
         """
         Write a passband to a file. The unit for the x-axis does nor need to be 
         the same as the internal representation.
@@ -1124,6 +848,10 @@ class Passband:
         force: bool
             If True, will use the file name in the header, even if does 
             not match the default name.
+        xfmt: str
+            format for the x values
+        yfmt: str
+            format for the y values
 
         Returns
         -------
@@ -1135,7 +863,8 @@ class Passband:
         in a nice order. An intelligent format to accomodate the precision
         would be nice.
         """
-        # build teh default file name
+
+        # build the default file name
         if 'instrument' not in self.header.content:
             raise ValueError('instrument is not set in header')
         instrument = self.header.content['instrument']
@@ -1155,52 +884,9 @@ class Passband:
                                      'expected filename {}. Use force keyword'.
                                      format(file,self.header.content['file'] ))
 
-        if dir is None:
-            classpath = inspect.getfile(self.__class__)
-            basepath = os.path.dirname(classpath)
-            default_passband_dir = os.path.join(basepath, 'data/passbands/')
-            passband_dir = os.path.join(default_passband_dir, instrument + '/')
-            if not os.path.exists(passband_dir):
-                os.mkdir(passband_dir)
-        else:
-            if not os.path.exists(dir):
-                raise ValueError("directory {} does not exist".format(dir))
-            passband_dir = os.path.join(dir, instrument + '/')
-            if not os.path.exists(passband_dir):
-                os.mkdir(passband_dir)
-
-        fullfilename = os.path.join(passband_dir, file)
-        if os.path.exists(fullfilename):
-            if not overwrite:
-                raise ValueError("The passband file {} already exists ! Aborting".
-                                 format(fullfilename))
-
-        # check xunit
-        if self.is_lam:
-            if is_wavelength(xunit):
-                xvals = (self.x * self.x_si_unit).to(xunit).value
-                xrefval = (self.x_ref * self.x_si_unit).to(xunit).value
-            else:
-                raise ValueError("Invalid output unit {xunit} for passband in "
-                                 "wavelenght".format(xunit))
-        elif self.is_nu:
-            if is_frequency(xunit):
-                xvals = (self.x * self.x_si_unit).to(xunit).value
-                xrefval = (self.x_ref * self.x_si_unit).to(xunit).value
-            else:
-                raise ValueError("Invalid output unit {xunit} for passband in"
-                                 " frequency".format(xunit))
-        else:
-            raise ValueError("Passband is neither in freq or lam ")
-
-        with open(fullfilename, 'w') as f:
-            for key, value in self.header.content.items():
-                if key is not 'xunit':
-                    f.write("{}\n".format(self.header.format_card(key, value)))
-            f.write("# xunit: {}\n".format(xunit))
-            for i, xval in enumerate(xvals):
-                f.write("{:>0.6f}    {:>0.6f}\n".format(xval, self.y[i]))
-        return fullfilename
+        return write_photometry_file(self, xunit, dirname=dir,
+                                     filename=self.header.content['file'],
+                                     overwrite=overwrite, xfmt=xfmt, yfmt=yfmt)
 
     def psf_weight(self, spectrum, xarr):
         """
@@ -1269,35 +955,6 @@ class Passband:
 #        return weights/np.sum(weights)
 
 
-    def shift_passband(self, shift_factor):
-        """
-        Shift the passband (and not the atmosphere), by multiplying the
-        frequency array by shift_factor.
-
-        Parameters:
-        -----------
-        shift_factor: float
-
-        """
-        self.x = self.x * shift_factor
-        try:
-            self.shift = self.shift * shift_factor
-        except:
-            self.shift = shift_factor
-        self.set_interpolation(self.interpolate_method)
-
-
-    def unshift_passband(self):
-        """
-        Unshift a passband
-        """
-        try:
-            shift_factor = 1./self.shift
-        except:
-            print("Passband is not shifted")
-            shift_factor = 1.
-        self.shift_passband(shift_factor)
-
 
     def offset_passband(self, offset):
         """
@@ -1343,294 +1000,6 @@ class Passband:
         self.set_interpolation(self.interpolate_method)
 
 
-
-class PassbandHeader:
-    """
-    A Class to handle the headers of passband files
-
-    Attribute:
-    content : dict
-        key, values of the header cards
-    re : compiled regular expression
-        matching pattern to decode header
-        
-        
-    The class provides methods to format to and read from header lines. 
-    - Formatting is handled by overloading the __str__ method, so that print(hd)
-      will correctly print header as it would appear in a file. 
-    - Reading from a line is done by the import_line() method
-    - Dictionaries can be imported by the import_dict() method
-    - Card and values can be added by the add_card_value() method.
-    """
-    def __init__(self):
-        """
-        Creates an empty dictionary and pre compile matching strings
-        """
-        self.content = dict()
-        self.key_card = re.compile('^#\s+(.+):\s+(\S+.*)$')
-        self.split_cr = re.compile(r'\n')
-
-    def add_card_value(self, card, value):
-        """
-        Add a the pair card, value to the header. If card is already present,
-        add to the existing value by introducing a carriage return before.
-
-        Parameters
-        ----------
-        card: str
-          name of the card
-        value: any
-          value is formatted to string.
-        """
-        if not isinstance(card, str):
-            wcard = str(card)
-        else:
-            wcard = card
-        if wcard in self.content:
-            self.content[wcard] = self.content[wcard] + '\n{}'.format(value)
-        else:
-            self.content[wcard] = '{}'.format(value)
-
-    def edit_card_value(self, card, value):
-        """
-        Edit the value of keyword value pair in the header.
-
-        Parameters
-        ----------
-        card: str
-          name of the card
-        value: any
-          value is formatted to string.
-        """
-        if not isinstance(card, str):
-            wcard = str(card)
-        else:
-            wcard = card
-        self.content[wcard] = '{}'.format(value)
-
-
-    def import_line(self, line):
-        """
-        decript a file header line and add the corresponding key, value to the
-        header dictionnary.
-
-        Parameters
-        ----------
-        line : str
-        """
-        mcard = self.key_card.match(line)
-        if mcard:
-            card = mcard.group(1)
-            value = mcard.group(2)
-            if card == 'xref (xunit)':
-                card = 'xref'
-            self.add_card_value(card, value)
-        else:
-            raise ValueError('The following  header line was not parsed:\n{}'.
-                             format(line))
-
-    def import_dict(self, header):
-        """
-        Add a dictionary to the header
-
-        Parameters
-        ----------
-        header: dict
-        """
-        for k, v in header.items():
-            self.add_card_value(k, v)
-        return None
-
-    def format_card(self, key, value):
-        """
-        Format the card, value to print header.
-        :param key: card name
-        :param value: value
-        :return: sting "# card: value". If value is multilines return 
-        "# card: first bit of value"
-        ...
-        "# card: last bit of value" 
-        """
-        result = ''
-        bits = self.split_cr.split(value)
-        for bit in bits:
-            if len(result) == 0:
-                result = '# {}: {}'.format(key, bit)
-            else:
-                result += '\n# {}: {}'.format(key, bit)
-        return result
-
-    def __str__(self):
-        """
-        Overloading of string representation
-        :return: str
-        """
-        if len(self.content) == 0:
-            result = 'Header: None'
-        else:
-            result = '############### Header #################'
-            for k, v in self.content.items():
-                result += '\n{}'.format(self.format_card(k, v))
-            result += '\n############### End of Header #################'
-        return result
-
-
-
-class PassbandInterpolator:
-    """
-    Interpolate a passband. The need for a specific class arises from the fact
-    that scipy.interpolate raises an exception when out of bound values are
-    requested, while for a passband, the result should be zero.
-
-    `x` and `y` are arrays of values used to approximate some function f:
-    ``y = f(x)``.  This class returns a function whose call method uses
-    interpolation to find the value of new points.
-
-    Contrary to scipy.interpolate.interp1d, the coefficient for interpolation
-    are only evaluated once, at object initialization.
-
-    Parameters
-    ----------
-    x : (N, ) ndarray
-        A 1-D array of real values, sorted in ascending order, and not
-        containing duplicate values.
-    y : (N, ) ndarray
-        A 1-D array of real values. The length of `y` must be equal to the
-        length of `x`
-    kind: str optional
-        Specifies the kind of interpolation as a string:
-        'nearest' : nearest neighbor interpolation
-        'linear' : linear interpolation
-        'quadratic' : piecewize quadratic interpolation
-        default value is 'quadratic'
-
-    Method
-    ______
-
-    __call__
-
-    Example
-    -------
-
-    >>> from matplotlib import pyplot as plt
-    >>> import numpy as np
-    >>> from photometry import passband
-    >>> x = np.linspace(5., 15., 11)
-    >>> y = 27 - (x-10.)**2
-
-    >>> fq = passband.PassbandInterpolator(x, y, kind='quadratic')
-
-    >>> xn = np.arange(21)+0.5
-    >>> yq = fq(xn)
-
-    >>> xp = np.linspace(5., 15., 101)
-    >>> yp = 27 - (xp-10.)**2
-    >>> plt.plot(xp, yp, label = 'True values')
-    >>> plt.plot(x, y, 'o', label='Sampled values')
-    >>> plt.plot(xn, yq, 'o', label = 'Quadratically interpolated')
-
-    >>> fl = passband.PassbandInterpolator(x, y, kind='linear')
-    >>> yl = fl(xn)
-
-    >>> plt.plot(xn, yl, 'o', label='Linearly interpolated')
-    >>> plt.legend(loc='upper right')
-
-
-    """
-    def __init__(self, x, y, kind='quadratic'):
-        """
-        Initialize the interpolator. The attributes depends on the kind of
-        interpolation selected.
-        """
-        self.n = len(x)
-        self.x = x
-        self.y = y
-        self.methods = {'nearest', 'linear', 'quadratic'}
-        if kind == 'nearest':
-            self.x_bounds = (x[1:] + x[:-1]) / 2.
-            self.x_bounds = np.append(self.x_bounds, [x[-1]])
-            self._call = self.__class__._call_nearest
-        elif kind == 'linear':
-            self.slopes = (y[1:]-y[:-1])/(x[1:]-x[:-1])
-            self.ordinates = (y[:-1] * x[1:] - y[1:] * x[:-1])/(x[1:]-x[:-1])
-            self._call = self.__class__._call_linear
-        elif kind == 'quadratic':
-            nx = self.n
-            xc = np.arange(nx, dtype='int64')
-            xc[0] = 1
-            xc[nx-1] = nx-2
-            xm = xc - 1
-            xp = xc + 1
-            discrim = (x[xm] - x[xc]) * (x[xm] - x[xp]) * (x[xp] - x[xc])
-            zz, = np.where(discrim == 0)
-            if len(zz) > 0:
-                raise ValueError("quadratic interpolation: discrimiment has 0"
-                                 " values")
-            self.b = ((y[xm] - y[xc]) * (x[xm] * x[xm] -x[xp] * x[xp]) -
-                      ((x[xm] * x[xm] - x[xc] * x[xc]) * (y[xm] - y[xp]))) / \
-                     discrim
-            self.c = ((y[xm] - y[xp]) * (x[xm] - x[xc]) -
-                      (x[xm] - x[xp]) * (y[xm] - y[xc])) / discrim
-            self.a = y[xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
-            self._call = self.__class__._call_quadratic
-        else:
-            raise ValueError("Invalid interpolation method: {}".format(kind))
-
-    def list_methods(self):
-        """
-        List the available methods of interpolation
-        """
-        return self.methods
-
-    def __call__(self, x):
-        return self._call(self, x)
-
-    def _call_nearest(self, x):
-        idx = np.searchsorted(self.x_bounds, x)
-        result = np.zeros(x.shape)
-        ok, = np.where((x >= self.x[0]) & (x <= self.x[-1]))
-        if len(ok) > 0:
-            result[ok] = self.y[idx[ok]]
-        # a check for negatives values is not necessary since a passband has
-        # only positive values within its bounds
-        return result
-
-    def _call_linear(self, x):
-        idx = np.digitize(x, self.x)-1
-        idx = idx.clip(0, self.n-2)
-        result = np.zeros(x.shape)
-        ok, = np.where((x >= self.x[0]) & (x <= self.x[-1]))
-        if len(ok) > 0:
-            result[ok] = self.slopes[idx[ok]] * x[ok] + self.ordinates[idx[ok]]
-        # a check for negatives values is not necessary since a passband has
-        # only positive values within its bounds
-        return result
-
-    def _call_quadratic(self, z):
-        nexti = np.digitize(z, self.x)
-        nexti[nexti < 1] = 1
-        nexti[nexti >= self.n] = self.n-1
-        previ = nexti - 1
-
-        distprev = z - self.x[previ]
-        distnext = self.x[nexti] - z
-        dist = self.x[nexti] - self.x[previ]
-
-        # computes the fit
-        res = (distnext * (self.a[previ] + (self.b[previ] +
-                                            z * self.c[previ]) * z) +
-               distprev * (self.a[nexti] + (self.b[nexti] +
-                                            z * self.c[nexti]) * z)) / dist
-
-        # sets to zero all values outside the range in x,
-        # as well as negative values
-        oo, = np.where((z < self.x[0]) | (z > self.x[-1]) | (res < 0.))
-
-        if len(oo) > 0:
-            res[oo] = 0.
-
-        return res
-
 def tophat(xlims, ytype='rsr'):
     """
     Generate a tophat bandpass, with 1.0 between xfrom and xto, and 0 elsewhere.
@@ -1647,9 +1016,6 @@ def tophat(xlims, ytype='rsr'):
     msg = quantity_1darray(xlims, length=2)
     if msg:
         raise ValueError("xlims" + msg)
-#    xvals = np.array([xlims[0].value*(1.-1e-10), xlims[0].value,
-        # xlims[1].value,
-#                    xlims[1].value*(1.+1e-10)])*xlims.unit
     yvals = np.array([1.,1.])
     result = Passband(x=xlims, y=yvals, xref=0.5*np.sum(xlims), ytype=ytype,
                       interpolation='nearest', nowarn=True)

@@ -238,5 +238,20 @@ def vega_cohen_1992():
     data = np.genfromtxt(vegafile)
     result = BasicSpectrum(x=data[:,0], x_type='lam', x_unit='micron',
                            y=data[:,1], y_type='flam', y_unit='W/cm**2/micron')
-    # TBC
+    return result
+
+def vega_stis_005():
+    """
+    Returns the CALSPEC alpha_lyr_stis_005 as a BasicSpectrum
+
+    :return: BasicSpectrum
+    """
+    dummy = BasicSpectrum()
+    classpath = inspect.getfile(dummy.__class__)
+    basepath = os.path.dirname(classpath)
+    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    vegafile = os.path.join(default_vega_dir, 'alpha_lyr_stis_005.fits')
+    t = Table.read(vegafile)
+    result = BasicSpectrum(x=t['WAVELENGTH'].data * u.Angstrom,
+                           y=t['FLUX'].data * u.erg/u.s/u.cm**2/u.Angstrom)
     return result

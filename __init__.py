@@ -40,6 +40,7 @@ __author__ = "herve aussel"
 
 from .config import VERSION as __version__
 from .phottools import *
+from .photcurve import *
 from .passband import *
 from .spectrum import *
 from .atmosphere import *

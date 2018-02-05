@@ -11,7 +11,106 @@ from astropy import units as u
 import inspect
 import os
 from .spectrum import BasicSpectrum
+from .photcurve import PhotCurve
 from .config import DEBUG
+from .phottools import is_wavelength, is_frequency, quantity_scalar, \
+    quantity_1darray, ndarray_1darray, velc, nu_unit, lam_unit, flam_unit, \
+    fnu_unit, nufnu_unit, PhotometryInterpolator, PhotometryHeader, write_photometry_file
+
+
+class Atmosphere(PhotCurve):
+    """
+    A class to model atmosphere.
+    """
+    def __init__(self, file=None, x=None, tau=None, header=None,
+                 interpolation='quadratic'):
+        super().__init__(file=file, x=x, y=tau, header=header,
+                       interpolation=interpolation)
+
+    def write(self, xunit, dirname=None, overwrite=False,
+              force=False, xfmt=':> 0.6f', yfmt=':>0.6f'):
+        """
+        Write a atmosphere to a file. The unit for the x-axis does nor need
+        to be the same as the internal representation.
+        By default, the file name is constructed from from the instrument
+        name and the atmosphere name, in the form instrument.atmosphere.atm
+
+        If the 'file' card is present in the passband header and it does not
+        match with the default file, and error is raised, unless the 'force'
+        keyword is True
+        If the file exists, nothing is written unless the overwrite keyword is
+        True.
+
+        Parameters
+        ----------
+        xunit: astropy.unit
+            The unit to use to write the file.
+        dirname : str
+            The directory where to write the file. If not given, the file
+            will be written into data/atmospheres of the photometry package.
+            If the file already exists, an error is raised.
+        overwrite: bool
+            If True, will overwrite the existing passband file. Defaulted
+            to False
+        force: bool
+            If True, will use the filename, even if does not match the
+            name in the header. The header is updated accordingly.
+        xfmt: str
+            format for the x values
+        yfmt: str
+            format for the y values
+
+        Returns
+        -------
+        output: str
+            The full filename (including path) of the file that has been
+            written
+        """
+        # build the default file name
+        if 'atmosphere' not in self.header:
+            raise ValueError('atmosphere is not set in header')
+        file = self.header['atmosphere'] + '.atm'
+        if 'instrument' not in self.header:
+            raise ValueError('instrument is not set in header')
+        if 'file' in self.header:
+            if file != self.header['file']:
+                if (force):
+                    print("Warning ! will write to file: {} ".
+                          format(self.header['file']))
+                    print(" and not to default file {}".format(file))
+                else:
+                    raise ValueError('Default filename {} does not match '
+                                     'expected filename {}. Use force keyword'.
+                                     format(file,self.header['file']))
+        return write_photometry_file(self, xunit, dirname=dirname,
+                                     overwrite=overwrite,
+                                     xfmt=':> 0.6f', yfmt=':>0.6f')
+
+    def default_dir(self):
+        """
+        Returns the default directory where atmosphere files are located
+        """
+        if 'instrument' not in self.header:
+            raise ValueError('instrument is not set in header')
+        instrument = self.header['instrument']
+        classpath = inspect.getfile(self.__class__)
+        basepath = os.path.dirname(classpath)
+        default_atmosphere_dir = os.path.join(basepath, 'data/atmospheres/')
+        return os.path.join(default_atmosphere_dir, instrument + '/')
+
+    def transmission(self, airmass, xvals):
+        if is_wavelength(xvals.unit):
+            if self.is_nu:
+                self.in_lam(reinterpolate=True)
+            tau = self.interpolate(xvals.to(lam_unit).value)
+        elif is_frequency(xvals.unit):
+            if self.is_lam:
+                self.in_nu(reinterpolate=True)
+            tau = self.interpolate(xvals.to(nu_unit).value)
+        return numpy.exp(-tau * airmass)
+
+
+
 
 class IramAtmosphere:
     """

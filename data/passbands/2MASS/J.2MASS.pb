@@ -1,17 +1,17 @@
-# filter: J
-# instrument: 2MASS
+# file: J.2MASS.pb
 # xtype: wavelength
+# ytype: rsr
+# url: http://www.ipac.caltech.edu/2mass/releases/allsky/doc/sec6_4a.html
+# instrument: 2MASS
+# description: Full system RSR (atmosphere, telescope, instrument)
+# system: Vega
+# xref: 1.235 micron
 # comment: passband bandwidth: 0.162 micron
 # comment: Cohen (2003) bandwidth: 0.162 micron
 # comment: Vega (Cohen, 1992) in inband flux: 5.074e-10 W / m2
 # comment: Cohen (2003) inband flux: 5.082e-10 W / m2
-# description: Full system RSR (atmosphere, telescope, instrument)
-# system: Vega
+# filter: J
 # reference: Cohen et al., 2003, AJ 126, 1090
-# xref: 1.235 micron
-# ytype: rsr
-# url: http://www.ipac.caltech.edu/2mass/releases/allsky/doc/sec6_4a.html
-# file: J.2MASS.pb
 # xunit: micron
  1.062000    0.000000
  1.066000    0.000407

@@ -14,16 +14,14 @@ from .phottools import velc, quantity_1darray, ndarray_1darray, \
     PhotometryHeader
 
 
-
 class PhotCurve:
     """
     A class to hold a set of curves as a function of wavelength or frequency.
-
-
     """
     def __init__(self, file=None, x=None, y=None, header=None,
                  table=None, colname_x=None, colnames_y=None,
-                 interpolation='quadratic', integration='trapezoidal'):
+                 interpolation='quadratic', extrapolate='no', positive=True,
+                 integration='trapezoidal'):
         """
         Parameters
         ----------
@@ -39,6 +37,8 @@ class PhotCurve:
         interpolation: str
             defines the interpolation mehod. Defaulted to 'quadratic'. Other
             methods are 'nearest' or 'linear'. See PassbandInterpolator.
+        extrapolate: bool
+            if true, interpolation can be done outside the definition domain.
         integration: str
             defines the integration method. Defaulted to 'trapezoidal'. Other
             choice is 'simpson'
@@ -55,6 +55,8 @@ class PhotCurve:
         self.is_nu = False
         self.interpolate_method = None
         self.interpolate_set = None
+        self.extrapolate = None
+        self.positive = None
         self.interpolate = None
         self.integrate_set = None
         self.integration_method = None
@@ -86,7 +88,8 @@ class PhotCurve:
             pass
         if not self.initialized:
             raise ValueError("Insufficient data to initialize PhotCurve")
-        self.set_interpolation(interpolation)
+        self.set_interpolation(interpolation, extrapolate=extrapolate,
+                               positive=positive)
         self.set_integration(integration)
 
     def _init_from_quantities(self, x, y, header=None):
@@ -116,12 +119,18 @@ class PhotCurve:
         xv = x.to(self.x_si_unit).value
         idx = np.argsort(xv)
         self.x = xv[idx]
+        if isinstance(y, u.Quantity):
+            self.org_y_unit = y.unit
+            yv = y.value
+        else:
+            self.org_y_unit = None
+            yv = y
         if y.ndim == 2:
             self.nb = y.shape[0]
-            self.y = y[idx, :]
+            self.y = yv[idx, :]
         else:
             self.nb = 1
-            self.y = y[idx]
+            self.y = yv[idx]
 
         idx = np.where(self.y < 0)
         if len(idx) > 0:
@@ -161,12 +170,12 @@ class PhotCurve:
             x_unit = u.Unit(phd['xunit'])
         except:
             raise ValueError('Invalid `xunit` {}'.format(phd['xunit']))
-         # check x
+        # check x
         msg = ndarray_1darray(x)
         if msg is not None:
             raise ValueError("`x`" + msg)
         # check y
-        msg = ndarray_1darray(y, length = len(x), other = 'x')
+        msg = ndarray_1darray(y, length=len(x), other='x')
         if msg is not None:
             raise ValueError("`y`" + msg)
 
@@ -177,7 +186,6 @@ class PhotCurve:
         else:
             xv = x * x_unit
         return self._init_from_quantities(xv, y, header=phd)
-
 
     def _init_from_table(self, data, colname_x=None, colnames_y=None,
                          header=None):
@@ -271,7 +279,7 @@ class PhotCurve:
                                      dirname=dirname, overwrite=overwrite,
                                      xfmt=xfmt, yfmt=yfmt)
 
-    def set_interpolation(self, interpolation):
+    def set_interpolation(self, interpolation, extrapolate='no', positive=True):
         """
         Sets the interpolation method of the curve.
 
@@ -279,11 +287,16 @@ class PhotCurve:
         Parameters
         ----------
         interpolation: str
-            the chosen interpolation method. Can be
-            - 'nearest': nearest point interpolation
-            - 'linear': linear interpolation
-            - 'quadratic': polynomial of order 2 interpolation
-            - 'logloglinear' : linear in log space interpolation
+            the chosen interpolation method. Can be any offered by the
+            PhotometryInterpolator class.
+        extrapolate: str
+            'no', 'yes', 'zero', see PhotometryInterpolator
+        positive: bool
+            if True, negative values are set to 0
+
+        Returns
+        -------
+        bool: True if succesful
 
         Effects
         -------
@@ -292,19 +305,21 @@ class PhotCurve:
          - interpolate_method: the name of the method
          - interpolate_set: flag indicating whether the passband is ready to
            interpolate.
-
         """
         try:
             self.interpolate = PhotometryInterpolator(self.x, self.y,
-                                                      interpolation)
+                                                      interpolation,
+                                                      positive=positive,
+                                                      extrapolate=extrapolate)
             result = True
         except:
-            print("Problem setting interpolation with {}".\
-                  format(interpolation))
+            print("Problem setting interpolation with {}".format(interpolation))
             result = False
-        if result == True:
+        if result is True:
             self.interpolate_method = interpolation
             self.interpolate_set = True
+            self.extrapolate = extrapolate
+            self.positive = positive
         return result
 
     def set_integration(self, method_name):
@@ -330,7 +345,7 @@ class PhotCurve:
         except:
             print("invalid integration method {}".format(method_name))
             result = False
-        if result == True:
+        if result is True:
             self.integration_method = method_name
             self.integrate_set = True
         return result
@@ -366,7 +381,9 @@ class PhotCurve:
         else:
             self.y *= wfactor
         self.yfactor *= factor
-        self.set_interpolation(self.interpolate_method)
+        self.set_interpolation(self.interpolate_method,
+                               extrapolate=self.extrapolate,
+                               positive=self.positive)
         return None
 
     def unscale(self):
@@ -396,7 +413,9 @@ class PhotCurve:
             wfactor = factor
         self.x *= wfactor
         self.xshift *= wfactor
-        self.set_interpolation(self.interpolate_method)
+        self.set_interpolation(self.interpolate_method,
+                               extrapolate=self.extrapolate,
+                               positive=self.positive)
         return None
 
     def unshift(self):
@@ -405,7 +424,6 @@ class PhotCurve:
         """
         factor = 1./self.xshift
         self.shift(factor)
-
 
     def nu(self, unit=None):
         """
@@ -432,7 +450,7 @@ class PhotCurve:
             else:
                 return (self.x * nu_unit).to(unit)
 
-    def lam(self, unit = None):
+    def lam(self, unit=None):
         """
         Returns the wavelength array of the curve in m or in requested unit
 
@@ -458,14 +476,14 @@ class PhotCurve:
             else:
                 return (velc / self.x * lam_unit).to(unit)
 
-    def in_nu(self, reinterpolate=False):
+    def in_nu(self, reinterpolate=True):
         """
         Set the curve to 'nu' type
         """
         if self.is_lam:
             self.x = velc / self.x[::-1]
             if self.nb > 1:
-                self.y = self.y[:,::-1]
+                self.y = self.y[:, ::-1]
             else:
                 self.y = self.y[::-1]
             self.is_lam = False
@@ -473,20 +491,22 @@ class PhotCurve:
             self.x_si_unit = nu_unit
             self.xshift = 1./self.xshift
             if reinterpolate:
-                self.set_interpolation(self.interpolate_method)
+                self.set_interpolation(self.interpolate_method,
+                                       extrapolate=self.extrapolate,
+                                       positive=self.positive)
             else:
                 self.interpolate = None
-                self.interpolation_set = False
+                self.interpolate_set = False
         return None
 
-    def in_lam(self, reinterpolate=False):
+    def in_lam(self, reinterpolate=True):
         """
         Set the curve to 'lam' type
         """
         if self.is_nu:
             self.x = velc / self.x[::-1]
             if self.nb > 1:
-                self.y = self.y[:,::-1]
+                self.y = self.y[:, ::-1]
             else:
                 self.y = self.y[::-1]
             self.is_lam = True
@@ -494,8 +514,10 @@ class PhotCurve:
             self.x_si_unit = lam_unit
             self.xshift = 1./self.xshift
             if reinterpolate:
-                self.set_interpolation(self.interpolate_method)
+                self.set_interpolation(self.interpolate_method,
+                                       extrapolate=self.extrapolate,
+                                       positive=self.positive)
             else:
                 self.interpolate = None
-                self.interpolation_set = False
+                self.interpolate_set = False
         return None

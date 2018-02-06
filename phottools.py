@@ -1,7 +1,17 @@
 """
 This module provides useful functions and classes for photometric computations,
 
-Utility unctions:
+Package constants and units:
+----------------------------
+- velc : velocity of light in m/s
+- nu_unit : frequency unit: Hz
+- lam_unit : wavelength unit: m
+- fnu_unit : spectral irradiance per unit frequency unit. SI W/m**2/Hz
+- flam_unit : spectral irradiance per unit wavelength: SI  W/m**2/m
+- nufnu_unit : spectral irradiance: W/m**2
+
+Utility functions:
+------------------
 - is_wavelength(unit)    : check whether unit is a wavelength unit
 - is_frequency(unit)     : check whether unit is a frequency unit
 - is_energy(unit)        : check whether unit is a energy unit
@@ -20,7 +30,8 @@ Utility unctions:
 - write_photometry_file(): write a photometry ascii file
 
 Classes:
-- PhotometryInterpolator()  : interface to the various interpolation schemes
+--------
+- PhotometryInterpolator()  : interface to the various interpolation classes
 - NearestInterpolator()     : nearest neighbour interpolation
 - LinearInterpolator()      : linear interpolation
 - QuadraticInterpolator()   : quadratic interpolation
@@ -55,9 +66,10 @@ def is_wavelength(unit):
     try:
         unit.to(u.m)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
+
 
 def is_frequency(unit):
     """
@@ -68,9 +80,10 @@ def is_frequency(unit):
     try:
         unit.to(u.Hz)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
+
 
 def is_energy(unit):
     """
@@ -81,9 +94,10 @@ def is_energy(unit):
     try:
         unit.to(u.J)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
+
 
 def is_flam(unit):
     """
@@ -94,9 +108,10 @@ def is_flam(unit):
     try:
         unit.to(u.W/u.m**2/u.Angstrom)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
+
 
 def is_fnu(unit):
     """
@@ -107,7 +122,7 @@ def is_fnu(unit):
     try:
         unit.to(u.Jy)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
 
@@ -121,9 +136,10 @@ def is_flux(unit):
     try:
         unit.to(u.W/u.m**2)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
+
 
 def is_lum(unit):
     """
@@ -134,7 +150,7 @@ def is_lum(unit):
     try:
         unit.to(u.W)
         result = True
-    except:
+    except u.UnitConversionError:
         result = False
     return result
 
@@ -143,7 +159,7 @@ def quantity_scalar(x):
     """
     Check that input is a scalar quantity
     :param x: variable to test
-    :return: True / False
+    :return: None or an error message
     """
     msg = None
     if not isinstance(x, u.Quantity):
@@ -335,7 +351,8 @@ def read_photometry_file(filename):
         sheader.append(line)
         line = f.readline()
     f.close()
-    return (values, sheader)
+    return values, sheader
+
 
 def write_photometry_file(photobject, xunit, filename=None, dirname=None,
                           overwrite=False, xfmt=':> 0.6f', yfmt=':>0.6f'):
@@ -392,8 +409,8 @@ def write_photometry_file(photobject, xunit, filename=None, dirname=None,
         raise ValueError("Photobject is neither in freq or lam ")
 
     with open(fullfilename, 'w') as f:
-        f.write("{}\n".format(photobject.header.format_card('file',
-                                                photobject.header['file'])))
+        f.write("{}\n".format(photobject.header.
+                              format_card('file', photobject.header['file'])))
         for key, value in photobject.header.items():
             if key is not 'xunit' and key is not 'file':
                 f.write("{}\n".format(photobject.header.format_card(key,
@@ -408,7 +425,7 @@ def write_photometry_file(photobject, xunit, filename=None, dirname=None,
 
 class PhotometryInterpolator:
     """
-    Class for interpolation of passbands and and spectra.
+    Class for interpolation of passbands, spectra, atmospheres, etc...
     The need for a  specific class arises from the fact that
     scipy.interpolate raises an exception when out of bound values are
     requested. Here the user has the possibility to use extrapolation.
@@ -435,31 +452,44 @@ class PhotometryInterpolator:
         'quadratic' : piecewize quadratic interpolation
         'log-log-linear' : linear interpolation in log space
         default value is 'log-log-linear'
+    extrapolate: str
+        can be either:
+        - 'no' : no extrapolation. Extrapolated values will be set to NaN
+        - 'zero' : Extrapolated values are set to zero. This is convenient
+                   for passbands.
+        - 'yes': extrapolated values are returned.
+    positive: bool
+        ensure the output is above 0 if True. All negative values are set to 0.
+        Note that positive = True is not equivalent to extrapolate='zero',
+        positive test everywhere, while extrapolate deals only with what
+        happens outside.
 
-    Method
-    ______
+    Attributes
+    ----------
+    interpolator: the appropriate interpolator object
 
-    __call__
-
-    Example
+    Methods
     -------
 
+    __call__(x) : performs the interpolation at x
+
     """
-    def __init__(self, x, y, kind, extrapolate=False):
+    def __init__(self, x, y, kind, extrapolate='no', positive=True):
         if kind == 'nearest':
-            self.interpolator = NearestInterpolator(x, y,
+            self.interpolator = NearestInterpolator(x, y, positive=positive,
                                                     extrapolate=extrapolate)
         elif kind == 'linear':
-            self.interpolator = LinearInterpolator(x, y,
+            self.interpolator = LinearInterpolator(x, y, positive=positive,
                                                    extrapolate=extrapolate)
         elif kind == 'log-log-linear':
-            self.interpolator = LogLogLinearInterpolator(x, y,
-                                                         extrapolate=extrapolate)
+            # log-log is always positive by design.
+            self.interpolator = \
+                LogLogLinearInterpolator(x, y, extrapolate=extrapolate)
         elif kind == 'quadratic':
-            self.interpolator = QuadraticInterpolator(x, y,
+            self.interpolator = QuadraticInterpolator(x, y, positive=positive,
                                                       extrapolate=extrapolate)
         else:
-            raise ValueError("Invalid extrapolation scheme '{}'".format(kind))
+            raise ValueError("Invalid interpolation scheme '{}'".format(kind))
 
     def __call__(self, x):
         return self.interpolator.__call__(x)
@@ -467,11 +497,17 @@ class PhotometryInterpolator:
     def __str__(self):
         return self.interpolator.__str__()
 
-    def available_interpolations(self):
+    @staticmethod
+    def available_interpolations():
         return ('nearest',
                 'linear',
                 'log-log-linear',
                 'quadratic')
+
+    @staticmethod
+    def available_extrapolations():
+        return 'no', 'zero', 'yes'
+
 
 class NearestInterpolator:
     """
@@ -479,10 +515,10 @@ class NearestInterpolator:
 
     Attributes:
     -----------
-
-    extrapolate: bool
-        If True, can extrapolate beyond the original array, otherwize returns
-        NaN outside the bounds
+    extrapolate: str
+        can be 'no' (default), 'yes' or 'zero'.
+    positive: bool
+        if yes, negative result values are set to zero
     x_low: float
         lowest bound of the input
     x_high: float
@@ -494,12 +530,21 @@ class NearestInterpolator:
 
     Methods:
     --------
-
-
+    __call__(x) : performs the interpolation at x
 
     """
-    def __init__(self, x, y, extrapolate=False):
+    def __init__(self, x, y, extrapolate='no', positive=True):
+        """
+        :param x: (N, ) ndarray of a abscissae
+        :param y: (N, ) or (M, N) ndarray of ordinates
+        :param extrapolate: 'yes', 'no', or 'zero'
+        :param positive: bool
+        """
+        if extrapolate not in ['no', 'zero', 'yes']:
+            raise ValueError("Invalid extrapolation scheme: '{}'".format(
+                extrapolate))
         self.extrapolate = extrapolate
+        self.positive = positive
         self.x_low = x[0]
         self.x_high = x[-1]
         self.x_bounds = (x[1:] + x[:-1]) / 2.
@@ -508,46 +553,40 @@ class NearestInterpolator:
 
     def __call__(self, x):
         idx = np.searchsorted(self.x_bounds, x)
+        idx = np.where(idx == len(self.x_bounds), len(self.x_bounds)-1, idx)
         if self.y.ndim == 2:
-            result = np.zeros((self.y.shape[0], x.shape[0]))
+            result = self.y[:, idx]
         else:
-            result = np.zeros(x.shape)
-        if self.extrapolate:
-            bad = []
-            over, = np.where(idx == len(self.x_bounds))
-            if len(over) > 0:
-                idx[over] = idx[over] - 1
-            ok = range(len(idx))
-        else:
-            bad, = np.where((x < self.x_low) | (x > self.x_high))
-            ok, = np.where((x >= self.x_low) & (x <= self.x_high))
-        if len(ok) > 0:
-            if self.y.ndim == 2:
-                result[:, ok] = self.y[:, idx[ok]]
+            result = self.y[idx]
+
+        if self.positive:
+            result = np.where(result > 0, result, 0)
+
+        if self.extrapolate is not 'yes':
+            if self.extrapolate is 'zero':
+                badval = 0.
             else:
-                result[ok] = self.y[idx[ok]]
-        if len(bad) > 0:
-            if self.y.ndim == 2:
-                result[:, bad] = np.NaN
-            else:
-                result[bad] = np.NaN
-        # Normally, the input spectrum has no negative value, so no need to
-        # check
+                badval = np.NaN
+            result = np.where((x >= self.x_low) & (x <= self.x_high), result,
+                              badval)
         return result
 
-        def __str__(self):
-            return "NearestInterpolator "
+    def __str__(self):
+        output = "NearestInterpolator, extrapolate:{}, positive: {}".format(
+            self.extrapolate, self.positive)
+        output += "\nDefinition domain: {} to {}".format(self.x_low,
+                                                         self.x_high)
+        return output
 
 
 class LinearInterpolator:
     """
-    Linear Interpolation. Negative interpolated values are returned as 0.
+    Linear Interpolation.
 
     Attributes:
     -----------
-    extrapolate: bool
-        If True, can extrapolate beyond the original array, otherwize returns
-        NaN outside the bounds
+    extrapolate: str
+        can be 'no' (default), 'yes' or 'zero'.
     positive: bool
         If True all negative values a set to zero.
     x: ndarray[n]
@@ -557,8 +596,23 @@ class LinearInterpolator:
     ordinates : ndarray[n] or [M, n]
         ordinates of the segments
 
+     Method
+     ------
+     __call__(x) perform interpolation at x
+
+     __str__
+
     """
-    def __init__(self, x, y, extrapolate=False, positive=True ):
+    def __init__(self, x, y, extrapolate='no', positive=True):
+        """
+        :param x: (N, ) ndarray of a abscissae
+        :param y: (N, ) or (M, N) ndarray of ordinates
+        :param extrapolate: 'yes', 'no', or 'zero'
+        :param positive: bool
+       """
+        if extrapolate not in ['no', 'zero', 'yes']:
+            raise ValueError("Invalid extrapolation scheme: '{}'".format(
+                extrapolate))
         self.extrapolate = extrapolate
         self.positive = positive
         self.x = x
@@ -573,50 +627,76 @@ class LinearInterpolator:
         idx = np.digitize(x, self.x)-1
         idx = idx.clip(0, len(self.x)-2)
         if self.slopes.ndim == 2:
-            result = np.zeros((self.slopes.shape[0], x.shape[0]))
+            result = self.slopes[:, idx] * x + self.ordinates[:, idx]
         else:
-            result = np.zeros(x.shape)
-        if self.extrapolate:
-            bad = []
-            ok = range(len(x))
-        else:
-            ok, = np.where((x >= self.x[0]) & (x <= self.x[-1]))
-            bad = np.where((x < self.x[0]) | (x > self.x[-1]))
-        if len(ok) > 0:
-            if self.slopes.ndim == 2:
-                result[:, ok] = self.slopes[:, idx[ok]] * x[ok] + \
-                                self.ordinates[:, idx[ok]]
-            else:
-                result[ok] = self.slopes[idx[ok]] * x[ok] + \
-                                self.ordinates[idx[ok]]
+            result = self.slopes[idx] * x + self.ordinates[idx]
+
         if self.positive:
-            result[result < 0] = 0.
-        if len(bad) > 0:
-            if self.slopes.ndim == 2:
-                result[:, bad] = np.NaN
+            result = np.where(result > 0, result, 0.)
+
+        if self.extrapolate is not 'yes':
+            if self.extrapolate is 'zero':
+                badval = 0.
             else:
-                result[bad] = np.NaN
+                badval = np.NaN
+            result = np.where((x >= self.x[0]) & (x <= self.x[-1]), result,
+                              badval)
         return result
+
+    def __str__(self):
+        output = "LinearInterpolator, extrapolate:{}, positive: {}".format(
+            self.extrapolate, self.positive)
+        output += "\nDefinition domain: {} to {}".format(self.x[0],
+                                                         self.x[-1])
+        return output
 
 
 class LogLogLinearInterpolator(LinearInterpolator):
     """
-    Linear interpolator in Log space.
+    Linear interpolator in Log space. Uses Line
     """
-    def __init__(self, x, y, extrapolate=False):
+    def __init__(self, x, y, extrapolate='No'):
         super().__init__(np.log10(x), np.log10(y),
                          positive=False, extrapolate=extrapolate)
 
     def __call__(self, x):
-        return 10.**(super().__call__(np.log10(x), threshzero=False))
+        return 10.**(super().__call__(np.log10(x)))
 
 
 class QuadraticInterpolator:
     """
+    Quadratic interpolation:
+    - computes the 2nd degree polynom coefficients at each Xi that pass
+      through (Xi-1,Yi-1),(Xi,Yi),(Xi+1,Yi+1).
+    - for any point between Xi and Xi+1, the output is the weighted
+      sum of the polynoms Pi and Pi+1, the weights beeing the distance
+      to the Xi and Xi+1
 
+    Attributes
+    ----------
+    extrapolate: str
+        can be 'no' (default), 'yes' or 'zero'.
+    positive: bool
+        If True all negative values a set to zero.
+    x: ndarray[n]
+        abscissae of the input
+    n: len(x)
+    a: degree 0 polynom coeffs
+    b: degree 1 polynom coeffs
+    c: degree 2 polynom coeffs
+
+    Methods
+    -------
+     __call__(x) perform interpolation at x
+
+     __str__
     """
-    def __init__(self, x, y, extrapolate=False):
+    def __init__(self, x, y, extrapolate='no', positive=True):
+        if extrapolate not in ['no', 'zero', 'yes']:
+            raise ValueError("Invalid extrapolation scheme: '{}'".format(
+                extrapolate))
         self.extrapolate = extrapolate
+        self.positive = positive
         self.x = x
         self.n = len(x)
         xc = np.arange(self.n, dtype='int64')
@@ -655,31 +735,35 @@ class QuadraticInterpolator:
         dist = self.x[nexti] - self.x[previ]
         # computes the fit
         if self.a.ndim == 2:
-            res = (distnext * (self.a[:, previ] + (self.b[:, previ] +
-                                                x * self.c[:, previ]) * x) +
-                   distprev * (self.a[:, nexti] + (self.b[:, nexti] +
-                                                x * self.c[:, nexti]) * x)) / \
-                  dist
-
+            res = (distnext * (self.a[:, previ] +
+                               (self.b[:, previ] + x * self.c[:, previ]) * x) +
+                   distprev * (self.a[:, nexti] +
+                               (self.b[:, nexti] + x * self.c[:, nexti]) *
+                               x)) / dist
         else:
             res = (distnext * (self.a[previ] + (self.b[previ] +
                                                 x * self.c[previ]) * x) +
                    distprev * (self.a[nexti] + (self.b[nexti] +
                                                 x * self.c[nexti]) * x)) / dist
 
-        # sets to zero all negative values:
-        oo = np.where(res < 0.)
-        if len(oo) > 0:
-            res[oo] = 0.
+        if self.positive:
+            res = np.where(res > 0, res, 0.)
 
-        if not self.extrapolate:
-            oo, = np.where((x < self.x[0]) | (x > self.x[-1]))
-            if len(oo) > 0:
-                if self.a.ndim == 2:
-                    res[:, oo] = np.NaN
-                else:
-                    res[oo] = np.NaN
+        if self.extrapolate is not 'yes':
+            if self.extrapolate is 'zero':
+                badval = 0.
+            else:
+                badval = np.NaN
+            res = np.where((x >= self.x[0]) & (x <= self.x[-1]),
+                           res, badval)
         return res
+
+    def __str__(self):
+        output = "QuadraticInterpolator, extrapolate:{}, positive: {}".format(
+            self.extrapolate, self.positive)
+        output += "\nDefinition domain: {} to {}".format(self.x[0],
+                                                         self.x[-1])
+        return output
 
 
 class PhotometryHeader:
@@ -830,5 +914,3 @@ class PhotometryHeader:
                 result += '\n{}'.format(self.format_card(k, v))
             result += '\n############### End of Header #################'
         return result
-
-

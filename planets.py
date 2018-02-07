@@ -351,7 +351,7 @@ class GiantPlanet:
             result = BasicSpectrum(x=self.model['wave'].quantity,
                                    y=(self.model['Inu'].data[np.newaxis, :] *
                                       solid_angle.to(u.sr).value[:, np.newaxis]
-                                      * 1e26)  * u.Jy)
+                                      * 1e26) * u.Jy)
         return result
 
 

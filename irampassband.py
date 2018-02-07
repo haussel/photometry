@@ -1,7 +1,8 @@
 __author__ = 'haussel'
 from .atmosphere import IramAtmosphere
 from .spectrum import BasicSpectrum
-from .passband import Passband, PassbandInterpolator
+from .passband import Passband
+from .phottools import PhotometryInterpolator
 from astropy.coordinates import Angle
 from .config import DEBUG
 
@@ -101,8 +102,8 @@ class IramPassband(Passband,IramAtmosphere):
         self.x_org = self.x.copy()
         self.y_org = self.y.copy()
         # this allows to tnterpolate the passband alone
-        self.interp_pb_org = PassbandInterpolator(self.x_org, self.y_org,
-                                                  kind='quadratic')
+        self.interp_pb_org = PhotometryInterpolator(self.x_org, self.y_org,
+                                                    kind='quadratic')
         self.elevation = None
         self.atm_trans = None
 
@@ -128,8 +129,8 @@ class IramPassband(Passband,IramAtmosphere):
             trans = self.transmission(self.elevation)
             # Then we interpolate this transmission at the common location of
             # points between the passband and the model.
-            interp = PassbandInterpolator(self.nu_atm, trans,
-                                          kind=self.interpolate_method)
+            interp = PhotometryInterpolator(self.nu_atm, trans,
+                                            kind=self.interpolate_method)
             self.x = self.location(self.nu_atm, self.x_org)
             # here we interpolate the atmospheric transmission
             self.atm_trans = interp(self.x)
@@ -170,8 +171,8 @@ class IramPassband(Passband,IramAtmosphere):
 
         """
         self.x_org  = self.x_org * shift_factor
-        self.interp_pb_org = PassbandInterpolator(self.x_org, self.y_org,
-                                                  kind='quadratic')
+        self.interp_pb_org = PhotometryInterpolator(self.x_org, self.y_org,
+                                                    kind='quadratic')
         self._set_internals()
         try:
             self.shift = self.shift * shift_factor

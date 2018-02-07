@@ -242,7 +242,7 @@ class IramAtmosphere:
             classpath = inspect.getfile(self.__class__)
             basepath = os.path.dirname(classpath)
             default_passband_dir = os.path.join(basepath,
-                                                'data/atmosphere/iram/')
+                                                'data/atmospheres/iram/')
             if model != 1985:
                 filename="atmosphere_{}_{}_{}.atm".format(self.model,
                                                           self.profile,

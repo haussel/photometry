@@ -311,6 +311,8 @@ class Passband(PhotCurve):
                 raise ValueError('Undefined xref')
             else:
                 xref = u.Quantity(self.header['xref'])
+                if xref.unit is u.dimensionless_unscaled:
+                    xref = xref * self.org_x_unit
 
         msg = quantity_scalar(xref)
         if msg is not None:

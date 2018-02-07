@@ -17,12 +17,96 @@ from .phottools import velc, quantity_1darray, ndarray_1darray, \
 class PhotCurve:
     """
     A class to hold a set of curves as a function of wavelength or frequency.
+
+    Attributes:
+    -----------
+    file: str
+        the filename containing the curves
+    header: PhotometryHeader
+        the header of the file.
+    x: ndarray - 1D
+        The common abscissa of the set of curves.
+    x_si_unit: astropy.units.Quantity
+        the unit used to represent x internally. SI units are used, i.e. u.m
+        for wavelength and u.Hz for frequencies.
+    org_x_type: str
+        the original type of abscissa: can be 'lam' or 'nu'.
+    org_x_unit: astropy.units.Quantity
+        the original unit of x.
+    y: ndarray 1D or 2D
+        the ordinates of the curves. if y has more than one dimension,
+        the last axis must have the same number of elements as x.
+    org_y_unit: astropy.units.Quantity
+        the original unit of y.
+    nb: int
+        the number of curves: 1 if y is 1D, and y.shape[0] if y is 2D.
+    is_lam: bool
+        True if x is a wavelength, False if x is a frequency
+    is_nu: bool
+        True if x is a frequency, False if x is wavelength
+    interpolate_method: str
+        interpolation method
+    interpolate_set: bool
+        True if the interpolation is ready.
+    extrapolate: str
+        'yes': the curves can be extrapolated
+        'no': the curves cannot be extrapolated, if an extrapolation is
+        requested, the extrapolated values will be set to NaN
+        'zero' : extrapolated values are set to zero
+    positive: bool
+        If True, any interpolated value that would lead to a negative result
+        is set to zero
+    interpolate: function
+        the function that performs the interpolation
+    integration_method: str
+        the method to integrate the curve
+    integrate_set: bool
+        True if the integration is setup.
+    integrate: function
+        the function that performs the integration
+    ready: bool
+    intialized: bool
+    yfactor: float or ndarray
+        the scaling factor in y that has been applied to the curve
+    xshift: float
+        the multiplicative shift in x that has been applied to the curve
     """
     def __init__(self, file=None, x=None, y=None, header=None,
                  table=None, colname_x=None, colnames_y=None,
-                 interpolation='quadratic', extrapolate='no', positive=True,
-                 integration='trapezoidal'):
+                 x_unit=None, interpolation=None, extrapolate=None,
+                 positive=True, integration=None):
         """
+        PhotCurve initialization. Possible initializations are:
+
+        Initialization from a photometry file (understandable by the phottools
+        read_photometry_file function)
+        >>> curve = PhotCurve(file=file)
+
+        Initialization from a table. In this case, the first column is
+        considered as the x values, the remaining columns the y values. In
+        this case, the x column MUST have a unit.
+        >>> curve = PhotCurve(table=table)
+
+        Initialization from a table, specifying the x and y columns. In these
+        cases, the x column MUST have a unit.
+        >>> curve = PhotCurve(table=table, colname_x='colx', colnames_y='coly')
+        >>> curve = PhotCurve(table=table, colname_x='colx',
+                                           colnames_y=['coly1', 'coly2'])
+
+        If the table x column has no unit, and if the header has a unit,
+        passing the header will work:
+        >>> curve = PhotCurve(table=table, header=header)
+        Same passing explictely x_unit
+        >>> curve =  PhotCurve(table=table, x_unit = u.micron)
+
+        Initialization from quantities:
+        >>> curve = PhotCurve(x=x, y=y)
+
+        Initialisation from ndarray, passing the header to get x_unit
+        >>> curve = PhotCurve(x=x, y=y, header=header)
+        Initialisation from ndarray, passing x_unit explictely
+        >>> curve = PhotCurve(x=x, y=y, x_unit=x_unit)
+
         Parameters
         ----------
         file: str
@@ -34,22 +118,60 @@ class PhotCurve:
             array of values as a function of x.
         header: PhotometryHeader or dict or array of str
             the header of the curve
+        table: astropy.table.Table
+            table containing x and y values
+        colname_x: str
+            name of the table column containing the x values
+        colnames_y: str or list of str
+            name or names of the column(s) containing the y values
+        x_unit: astropy.units.Quantity
+            unit of x
         interpolation: str
             defines the interpolation mehod. Defaulted to 'quadratic'. Other
             methods are 'nearest' or 'linear'. See PassbandInterpolator.
-        extrapolate: bool
-            if true, interpolation can be done outside the definition domain.
+        extrapolate: str
+            'yes', 'no', or 'zero'
+        positive: bool
+            If True, prevent negative interpolation.
         integration: str
-            defines the integration method. Defaulted to 'trapezoidal'. Other
-            choice is 'simpson'
+            defines the integration method. Can be 'trapezoidal' or 'simpson'
+
+        Methods:
+        --------
+        set_interpolation(interpolation [,extrapolate, positive]):
+            sets the interpolation method
+        set_integration(method):
+            select the integration method
+        scale(factor):
+            scale the y by factor
+        unscale():
+            remove all scalings previously applied
+        shift(factor):
+            shift the x axis by a multiplicative factor.
+        unshift():
+            remove all previously applied shift
+        nu([unit]):
+            returns x as frequency in unit (or in Hz if unspecified)
+        lam([unit]):
+            returns y as a wavelength in unit (or in m if unspecified)
+        in_nu([reinterpolate]):
+            convert the x to frequency. Do not reinterpolate is requested.
+        in_lam([reinterpolate]):
+            convert the x to wavelength. Do not reinterpolate is requested.
+        interpolate(x):
+            interpolate curves at x
+        integrate(y, x):
+            computes the integral of y over x.
+
         """
-        self.header = PhotometryHeader()
         self.file = None
+        self.header = PhotometryHeader()
         self.x = None
         self.x_si_unit = None
         self.org_x_type = None
         self.org_x_unit = None
         self.y = None
+        self.org_y_unit = None
         self.nb = None
         self.is_lam = False
         self.is_nu = False
@@ -61,14 +183,15 @@ class PhotCurve:
         self.integrate_set = None
         self.integration_method = None
         self.integrate = None
-        self.ready = False
         self.intialized = False
+        self.ready = False
         self.yfactor = 1.0
         self.xshift = 1.0
 
+
         if file is not None:
             if (x is None) and (y is None) and (table is None):
-                self.initialized = self.read(file)
+                self.initialized = self._read(file)
             else:
                 raise ValueError("Cannot set both file and x, y or table "
                                  "values")
@@ -77,20 +200,26 @@ class PhotCurve:
                 self.initialized = self._init_from_table(table,
                                                          colname_x=colname_x,
                                                          colnames_y=colnames_y,
-                                                         header=header)
+                                                         header=header,
+                                                         x_unit=x_unit)
             else:
                 raise ValueError("Cannot set both table and x, y values")
         elif (x is not None) and (y is not None) and (header is not None):
                 self.initialized = self._init_from_header(x, y, header)
-        elif (x is not None) and (y is not None):
+        elif (x is not None) and (y is not None) and (x_unit is None):
             self.initialized = self._init_from_quantities(x, y, header=header)
+        elif (x is not None) and (y is not None) and (x_unit is not None):
+            self.initialized = self._init_from_ndarray(x, x_unit, y,
+                                                       header=header)
         else:
-            pass
-        if not self.initialized:
-            raise ValueError("Insufficient data to initialize PhotCurve")
-        self.set_interpolation(interpolation, extrapolate=extrapolate,
-                               positive=positive)
-        self.set_integration(integration)
+            self.initialized = False
+
+        if self.initialized:
+            self.set_interpolation(interpolation, extrapolate=extrapolate,
+                                   positive=positive)
+            self.set_integration(integration)
+            if self.interpolate_set and self.integrate_set:
+                self.ready = True
 
     def _init_from_quantities(self, x, y, header=None):
         # check x
@@ -133,7 +262,7 @@ class PhotCurve:
             self.y = yv[idx]
 
         idx = np.where(self.y < 0)
-        if len(idx) > 0:
+        if len(idx[0]) > 0:
             print("Negative values have been set to zero")
             self.y[idx] = 0.
 
@@ -188,7 +317,7 @@ class PhotCurve:
         return self._init_from_quantities(xv, y, header=phd)
 
     def _init_from_table(self, data, colname_x=None, colnames_y=None,
-                         header=None):
+                         header=None, x_unit=None):
         """
         Initialize from a table.
 
@@ -204,6 +333,8 @@ class PhotCurve:
             If not given, try with all the columns except the first
         header: PhotometryHeader or dict or array of str
             the header of the curve
+        x_unit: astropy.units.Unit
+            the unit of column x if not present in the table.
         """
         if not isinstance(data, Table):
             raise ValueError('`data` is not a Table')
@@ -241,8 +372,16 @@ class PhotCurve:
                 try:
                     x_unit = u.Unit(phd['xunit'])
                 except:
-                    raise ValueError('Invalid `xunit` {}'.format(phd['xunit']))
+                    raise ValueError('Invalid `xunit` in header {}'.
+                                     format(phd['xunit']))
                 x = data[colname_x].data * x_unit
+            elif x_unit is not None:
+                try:
+                    x = data[colname_x].data * x_unit
+                except:
+                    raise ValueError('Invalid `x_unit` {}'.format(x_unit))
+            else:
+                raise ValueError("No unit for column x '{}'".format(colname_x))
         else:
             raise ValueError("Column `{}` not found in Table".format(colname_x))
 
@@ -268,8 +407,16 @@ class PhotCurve:
 
         return self._init_from_quantities(x, y, header=header)
 
-    def read(self, filename):
+    def _init_from_ndarray(self, x, x_unit, y, header=None):
+        try:
+            xu = x * x_unit
+        except:
+            raise ValueError('Invalid unit for x: {}'.format(x_unit))
+        return self._init_from_quantities(x=xu, y=y, header=header)
+
+    def _read(self, filename):
         (values, sheader) = read_photometry_file(filename)
+        self.file = filename
         # TODO: uses more than one column...
         return self._init_from_header(values['x'], values['y'], sheader)
 
@@ -278,6 +425,17 @@ class PhotCurve:
         return write_photometry_file(self, xunit, filename=filename,
                                      dirname=dirname, overwrite=overwrite,
                                      xfmt=xfmt, yfmt=yfmt)
+
+    def __str__(self):
+        result = "{}".format(self.header)
+        result += "\nInternal settings:\n"
+        result += "    interpolation method: {} / ready ? {}\n".\
+            format(self.interpolate_method, self.interpolate_set)
+        result += "    integration method: {} / ready ? {}\n".format(
+            self.integration_method, self.integrate_set)
+        return result
+
+
 
     def set_interpolation(self, interpolation, extrapolate='no', positive=True):
         """
@@ -340,7 +498,7 @@ class PhotCurve:
             elif method_name == 'simpson':
                 self.integrate = self._integrate_simpson
             else:
-                print("invalid integration method {}".format(method_name))
+#                print("invalid integration method {}".format(method_name))
                 result = False
         except:
             print("invalid integration method {}".format(method_name))
@@ -348,6 +506,9 @@ class PhotCurve:
         if result is True:
             self.integration_method = method_name
             self.integrate_set = True
+        else:
+            self.integration_method = None
+            self.integrate_set = False
         return result
 
     def _integrate_trapezoidal(self, y, x):
@@ -358,7 +519,8 @@ class PhotCurve:
 
     def scale(self, factor):
         """
-        Scale the curve in the sense y *= factor
+        Scale the curve in the sense y *= factor. If factor is a quantity,
+        only the value is used and the unit is dropped.
 
         Parameter
         ---------
@@ -479,6 +641,11 @@ class PhotCurve:
     def in_nu(self, reinterpolate=True):
         """
         Set the curve to 'nu' type
+
+        Parameters
+        ----------
+        reinterpolate: bool
+            If True, the interpolation is recomputed.
         """
         if self.is_lam:
             self.x = velc / self.x[::-1]
@@ -491,9 +658,10 @@ class PhotCurve:
             self.x_si_unit = nu_unit
             self.xshift = 1./self.xshift
             if reinterpolate:
-                self.set_interpolation(self.interpolate_method,
-                                       extrapolate=self.extrapolate,
-                                       positive=self.positive)
+                self.interpolate_set = self.set_interpolation(
+                    self.interpolate_method,
+                    extrapolate=self.extrapolate,
+                    positive=self.positive)
             else:
                 self.interpolate = None
                 self.interpolate_set = False
@@ -502,6 +670,11 @@ class PhotCurve:
     def in_lam(self, reinterpolate=True):
         """
         Set the curve to 'lam' type
+
+        Parameters
+        ----------
+        reinterpolate: bool
+            If True, the interpolation is recomputed.
         """
         if self.is_nu:
             self.x = velc / self.x[::-1]
@@ -514,9 +687,10 @@ class PhotCurve:
             self.x_si_unit = lam_unit
             self.xshift = 1./self.xshift
             if reinterpolate:
-                self.set_interpolation(self.interpolate_method,
-                                       extrapolate=self.extrapolate,
-                                       positive=self.positive)
+                self.interpolate_set = self.set_interpolation(
+                    self.interpolate_method,
+                    extrapolate=self.extrapolate,
+                    positive=self.positive)
             else:
                 self.interpolate = None
                 self.interpolate_set = False

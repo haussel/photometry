@@ -1,19 +1,15 @@
 """
 This module provides the following classes:
 - Passband : a class to hold a passband
-- PassbandHeader: a class to hold the content of the header of a passband.
-- PassbandInterpolator: a class to perform various interpolation for passbands
 
 Provide also the functions:
-- tophat
+- tophat : a tophat passband
 """
 __author__ = 'Herve Aussel'
 
-import re
 import os
 import inspect
 import numpy as np
-from scipy import integrate
 from astropy import units as u
 from .photcurve import PhotCurve
 from .phottools import is_wavelength, is_frequency, quantity_scalar, \
@@ -54,12 +50,170 @@ class Passband(PhotCurve):
     The way the passband interact with the spectrum (interpolation,
     integration) can be tuned with the set_location(), set_interpolation() and
     set_integration() methods (see their doc).
+
+
+    Attributes inherited from PhotCurve:
+    ------------------------------------
+    file: str
+        The name of the file containing the passband
+    header: PhotometryHeader
+        A special dictionary containing non crucial information about the
+        passband
+    x : (N, ) numpy.ndarray
+        The abscissa values. Can be frequency or wavelength,
+        always in SI unit (x_si_unit)
+    x_si_unit: astropy.unit
+        The unit for x and x_ref
+    org_x_type: str
+        The original type of the passband. Can be 'lam' or 'nu'
+    org_x_unit: astropy.unit
+        The original unit of the passband
+    y: (N,) numpy.ndarray
+        the passband rsr (relative system response) or qe (quantum
+        efficiency)
+    org_y_unit: astropy.units.Quantity
+        the original unit of y.
+    nb: int
+        the number of curves: 1 if y is 1D, and y.shape[0] if y is 2D.
+    is_lam : boolean
+        True is x and x_ref are wavelengths
+    is_nu: boolean
+        True is x and x_ref are frequencies
+    interpolate_method: str
+        method to interpolate the values of the passband. Can be
+        - 'nearest' : nearest neighbor
+        - 'linear'  : linear
+        - 'quadratic' : piecewize quadratic
+    interpolate_set: boolean
+        True is the interpolation function is set
+    extrapolate: str
+        'yes': the curves can be extrapolated
+        'no': the curves cannot be extrapolated, if an extrapolation is
+        requested, the extrapolated values will be set to NaN
+        'zero' : extrapolated values are set to zero
+    positive: bool
+        If True, any interpolated value that would lead to a negative result
+        is set to zero
+    interpolate: PassbandInterpolator
+        Returns the inrterpolated values of y at requested x.
+    integration_method: str
+        the method used for numerical integration. Can be:
+        - 'trapezoidal'
+        - 'simpson'
+    integrate_set: boolean
+        True if the integration method is set.
+    integrate: function
+        The function that performs the integration
+    yfactor: float
+        scaling factor applied to y
+    xshift: float
+        scaling factor applied to x
+    initialized: bool
+        True if properly initialized
+
+    Attributes specific to Passband
+    --------------------------------
+    instrument: str
+        The name of the instrument the passband applies to
+    filter: str
+        The name of the filter
+    org_y_type: str
+        The original type of the passband. Can be 'qe' or 'rsr'
+    org_x_ref: float
+        The original reference
+    x_ref: float
+        The reference frequency or wavelength for the passband in
+        units of x_si_unit.
+    is_qe: boolean
+        True if the passband is a quantum efficiency
+    is_rsr: boolean
+        True if passband is a relative system response
+    location_method: str
+        method to determine where to interpolate the spectrum and the
+        passband. Can be :
+            - 'both_spectrum_and_passband'
+            - 'spectrum_at_passband'
+            - 'passband_at_spectrum'
+    location_set: boolean
+        True if the location method is set
+    location: function
+        The method that returns the place where to interpolate, given the
+        spectrum and passband abscissa.
+    interpolate_method: str
+        method to interpolate the values of the passband. Can be
+        - 'nearest' : nearest neighbor
+        - 'linear'  : linear
+        - 'quadratic' : piecewize quadratic
+    interpolate_set: boolean
+        True is the interpolation function is set
+    interpolate: PassbandInterpolator
+        Returns the inrterpolated values of y at requested x.
+    integration_method: str
+        the method used for numerical integration. Can be:
+        - 'trapezoidal'
+        - 'simpson'
+    integrate_set: boolean
+        True if the integration method is set.
+    self.integrate: function
+        The function that performs the integration
+    ready: Boolean
+        True if the passband is ready for use.
+    xoffset: float
+        offset applied to x
+
+
+
+    Methods:
+    --------
+    set_location(location):
+        defines the rules for interpolating spectra aand passband.
+    response():
+        returns the passband y values
+    in_nu():
+        switch the passband in function of frequency
+    in_lam():
+        switch the passband in function of wavelength
+    fnu_ab(spectrum):
+        compute the spectral irradiance in the band of the spectrum, following
+        the AB convention.
+    mag_ab(spectrum):
+        compute the AB magnitude of the spectrum in the band
+    mag_vega(spectrum[,vegaflux, vega]):
+        compute the vega magnitude of the spectrum in the band
+    fnu_ir(spectrum):
+        compute the spectral irradiance in the band of the spectrum, following
+        the IR convention.
+    flux(spectrum):
+        computes the inband irradiance (W/m**2) of the spectrum in the band.
+    flam_st(spectrum):
+        computes the spectral irradiance in a passband of a spectrum, following
+        the ST convention
+    bandwidth(unit[,normalize]):
+        computes the bandwidth of the passband in unit
+    xref(unit):
+        returns the passband reference wavelength or frequency in unit
+    combine(other):
+        combines two passbands in one
+    default_dir():
+        returns the default directory of the photometry package where the
+        passband file is to be found
+    write(xunit[,dir, overwrite, force]):
+        write the passband as a photometry file
+    psf_weight(spectrum, xarr):
+        computes weigths for quantities computed at xarr
+    offset(offset):
+        offset the passband
+    unoffset():
+        take out passband offset
+    distort(alpha):
+        Distort a passband by multiplying it by (x/x_ref)**alpha
     """
     # Initialization Methods
     def __init__(self, file=None, x=None, y=None, xref=None, ytype=None,
                  table=None, colname_x=None, colnames_y=None,
                  header=None, location='both_spectrum_and_passband',
-                 interpolation='quadratic', integration='trapezoidal',
+                 interpolation='quadratic', extrapolate='zero',
+                 integration='trapezoidal', x_unit=None,
                  nowarn=False):
         """
 
@@ -105,104 +259,13 @@ class Passband(PhotCurve):
             If set to True, no warning message of incomplete information is
             given
 
-        Attributes inherited from PhotCurve:
-        ------------------------------------
-        header: PhotometryHeader
-            A special dictionary containing non crucial information about the
-            passband
-        file: str
-            The name of the file containing the passband
-        org_x_type: str
-            The original type of the passband. Can be 'lam' or 'nu'
-        org_x_unit: astropy.unit
-            The original unit of the passband
-        x : (N, ) numpy.ndarray
-            The abscissa values. Can be frequency or wavelength,
-            always in SI unit (x_si_unit)
-        x_si_unit: astropy.unit
-            The unit for x and x_ref
-        is_lam : boolean
-            True is x and x_ref are wavelengths
-        is_nu: boolean
-            True is x and x_ref are frequencies
-        y: (N,) numpy.ndarray
-            the passband rsr (relative system response) or qe (quantum
-            efficiency)
-        interpolate_method: str
-            method to interpolate the values of the passband. Can be
-            - 'nearest' : nearest neighbor
-            - 'linear'  : linear
-            - 'quadratic' : piecewize quadratic
-        interpolate_set: boolean
-            True is the interpolation function is set
-        interpolate: PassbandInterpolator
-            Returns the inrterpolated values of y at requested x.
-        integration_method: str
-            the method used for numerical integration. Can be:
-            - 'trapezoidal'
-            - 'simpson'
-        integrate_set: boolean
-            True if the integration method is set.
-        integrate: function
-            The function that performs the integration
-        yfactor: float
-            scaling factor applied to y
-        xshift: float
-            scaling factor applied to x
-        initialized: bool
-            True if properly initialized
-
-        Attributes specific to Passband
-        --------------------------------
-        instrument: str
-            The name of the instrument the passband applies to
-        filter: str
-            The name of the filter
-        org_y_type: str
-            The original type of the passband. Can be 'qe' or 'rsr'
-        org_x_ref: float
-            The original reference
-        x_ref: float
-            The reference frequency or wavelength for the passband in
-            units of x_si_unit.
-        is_qe: boolean
-            True if the passband is a quantum efficiency
-        is_rsr: boolean
-            True if passband is a relative system response
-        location_method: str
-            method to determine where to interpolate the spectrum and the
-            passband. Can be :
-                - 'both_spectrum_and_passband'
-                - 'spectrum_at_passband'
-                - 'passband_at_spectrum'
-        location_set: boolean
-            True if the location method is set
-        location: function
-            The method that returns the place where to interpolate, given the
-            spectrum and passband abscissa.
-        interpolate_method: str
-            method to interpolate the values of the passband. Can be
-            - 'nearest' : nearest neighbor
-            - 'linear'  : linear
-            - 'quadratic' : piecewize quadratic
-        interpolate_set: boolean
-            True is the interpolation function is set
-        interpolate: PassbandInterpolator
-            Returns the inrterpolated values of y at requested x.
-        integration_method: str
-            the method used for numerical integration. Can be:
-            - 'trapezoidal'
-            - 'simpson'
-        integrate_set: boolean
-            True if the integration method is set.
-        self.integrate: function
-            The function that performs the integration
-        ready: Boolean
-            True if the passband is ready for use.
         """
         super().__init__(file=file, x=x, y=y, table=table, colname_x=colname_x,
-                         colnames_y=colnames_y, header=header,
-                         interpolation=interpolation, integration=integration)
+                         colnames_y=colnames_y, header=header, x_unit=x_unit,
+                         interpolation=interpolation,
+                         extrapolate=extrapolate, positive=True,
+                         integration=integration)
+
 
         self.instrument = None
         self.filter = None
@@ -214,14 +277,18 @@ class Passband(PhotCurve):
         self.location_method  = None
         self.location_method = None
         self.nowarn = nowarn
+        self.xoffset = 0.
+
+
+        if not self.initialized:
+            return
 
         if self.nb != 1:
             raise NotImplementedError('Cannot have multiple passbands')
 
-        # in case we had quantities for y
-        if isinstance(self.y, u.Quantity):
-            self.y = self.y.value
 
+
+        # Fill ytype
         if ytype is None:
             if 'ytype' not in self.header:
                 raise ValueError('`ytype` is undefined for Passband')
@@ -238,6 +305,7 @@ class Passband(PhotCurve):
         else:
             raise ValueError('Invalid value {} for `ytype`'.format(ytype))
 
+        # Fill xref
         if xref is None:
             if 'xref' not in self.header:
                 raise ValueError('Undefined xref')
@@ -251,12 +319,12 @@ class Passband(PhotCurve):
         self.org_x_ref = xref.value
         if is_frequency(xref.unit):
             if self.is_nu:
-                self.x_ref = xref.to(self.x_si_unit).value
+                self.xref = xref.to(self.x_si_unit).value
             else:
-                self.x_ref = (velc / xref.to(lam_unit)).value
+                self.xref = (velc / xref.to(lam_unit)).value
         elif is_wavelength(xref.unit):
             if self.is_lam:
-                self.x_ref = xref.to(self.x_si_unit).value
+                self.xref = xref.to(self.x_si_unit).value
             else:
                 self.xref = (velc / xref.to(nu_unit)).value
         else:
@@ -272,7 +340,6 @@ class Passband(PhotCurve):
             self.ready = True
         else:
             self.ready = False
-
 
     def fill_header(self):
         """
@@ -293,8 +360,9 @@ class Passband(PhotCurve):
                 if self.file != self.header.content['file']:
                     if not self.nowarn:
                         print("Warning file does not match between header: "
-                              "{}\nobject: {}"
-                          .format(self.header.content['file'], self.file))
+                              "{}\nobject: {}".
+                              format(self.header.content['file'],
+                                     self.file))
 
         if 'instrument' not in self.header:
             if self.instrument is not None:
@@ -543,8 +611,8 @@ class Passband(PhotCurve):
             flux = self.integrate(ifnu * itnu, allnu)
             bandwidth = self.integrate(itnu, allnu)
         else:
-            flux = self.integrate(ifnu * itnu * (self.x_ref / allnu), allnu)
-            bandwidth = self.integrate(itnu * (self.x_ref / allnu), allnu)
+            flux = self.integrate(ifnu * itnu * (self.xref / allnu), allnu)
+            bandwidth = self.integrate(itnu * (self.xref / allnu), allnu)
         return flux / bandwidth * fnu_unit
 
     def mag_ab(self, spectrum):
@@ -567,6 +635,33 @@ class Passband(PhotCurve):
         """
         test = self.fnu_ab(spectrum)
         return -2.5 * np.log10(test/(3631e-26 * fnu_unit))
+
+    def mag_vega(self, spectrum, vega=None, vegaflux=None):
+        """
+        Compute the vega magnitude of the spectrum in the band
+
+        Parameters
+        ----------
+        spectrum: BasicSpectrum
+            spectrum for which is to be computed
+        vegaflux: astropy.units.Quantity
+            in band flux of vega
+        vega: BasicSpectrum
+            spectrum of vega. If fluxvega is provided, it is ignored
+
+        Returns
+        -------
+        output: astropy.quantity
+            The vega magnitude. This quantity has no unit.
+        """
+        fs = self.flux(spectrum)
+        if vegaflux is None:
+            if vega is not None:
+                vegaflux = self.flux(vega)
+            else:
+                raise ValueError('Neither Vega flux or Vega Spectrum was '
+                                 'provided')
+        return -2.5 * np.log10(fs/vegaflux)
 
     def fnu_ir(self, spectrum):
         """
@@ -602,10 +697,10 @@ class Passband(PhotCurve):
         itnu = self.interpolate(allnu)
         if self.is_rsr:
             flux = self.integrate(ifnu * itnu, allnu)
-            bandwidth = self.integrate(itnu * self.x_ref / allnu, allnu)
+            bandwidth = self.integrate(itnu * self.xref / allnu, allnu)
         else:
             flux = self.integrate(ifnu * itnu / allnu, allnu)
-            bandwidth = self.integrate(itnu * (self.x_ref / allnu) / allnu,
+            bandwidth = self.integrate(itnu * (self.xref / allnu) / allnu,
                                        allnu)
         return (flux / bandwidth) * fnu_unit
 
@@ -643,7 +738,7 @@ class Passband(PhotCurve):
             if self.is_rsr:
                 flux = self.integrate(ifnu * itnu, allnu)
             else:
-                flux = self.integrate(ifnu * itnu * (self.x_ref / allnu),
+                flux = self.integrate(ifnu * itnu * (self.xref / allnu),
                                       allnu)
         else:
             lams = spectrum.lam()
@@ -657,7 +752,7 @@ class Passband(PhotCurve):
             if self.is_rsr:
                 flux = self.integrate(iflam * itlam, alllam)
             else:
-                flux = self.integrate(iflam * itlam * (alllam/self.x_ref),
+                flux = self.integrate(iflam * itlam * (alllam/self.xref),
                                       alllam)
         return flux * nufnu_unit
 
@@ -698,8 +793,8 @@ class Passband(PhotCurve):
             flux = self.integrate(iflam * itlam, alllam)
             bandwidth = self.integrate(itlam, alllam)
         else:
-            flux = self.integrate(iflam * itlam * (alllam/ self.x_ref), alllam)
-            bandwidth = self.integrate(itlam * (alllam / self.x_ref), alllam)
+            flux = self.integrate(iflam * itlam * (alllam/ self.xref), alllam)
+            bandwidth = self.integrate(itlam * (alllam / self.xref), alllam)
         return flux / bandwidth * flam_unit
 
     def bandwidth(self, unit, normalize=False):
@@ -762,7 +857,7 @@ class Passband(PhotCurve):
                 self.in_nu()
         else:
             raise ValueError("Invalid unit for xref: {}".format(unit))
-        return (self.x_ref * self.x_si_unit).to(unit)
+        return (self.xref * self.x_si_unit).to(unit)
 
     def combine(self, other):
         """
@@ -954,9 +1049,7 @@ class Passband(PhotCurve):
 #            weights[i] = slice.flux(spectrum).value
 #        return weights/np.sum(weights)
 
-
-
-    def offset_passband(self, offset):
+    def offset(self, offset):
         """
         Shift the passband (and not the atmosphere), by adding the offset to
         the frequencies
@@ -966,38 +1059,31 @@ class Passband(PhotCurve):
         offset: astropy.unit.Quantity
 
         """
-        self.x  = self.x + offset.to(self.x_si_unit).value
-        try:
-            self.offset = self.offset + offset
-        except:
-            self.offset = offset
-        self.set_interpolation(self.interpolate_method)
+        self.x = self.x + offset.to(self.x_si_unit).value
+        self.xoffset = self.xoffset + offset
+        self.set_interpolation(self.interpolate_method,
+                               extrapolate=self.extrapolate,
+                               positive=self.positive)
 
-
-    def unoffset_passband(self):
+    def unoffset(self):
         """
         Unshift a passband
         """
-        try:
-            offset = -self.offset
-        except:
-            print("Passband is not offsetted")
-            if self.is_nu:
-                offset = 0. * u.Hz
-            else:
-                offset = 0. * u.m
+        offset = -self.xoffset
         self.offset_passband(offset)
 
-    def distort_passband(self, alpha):
+    def distort(self, alpha):
         """
         Distort a passband by multiplying it by (x/x_ref)**alpha
 
         Parameter:
         alpha: float
         """
-        self.y = self.y * (self.x / self.x_ref)**alpha
+        self.y = self.y * (self.x / self.xref)**alpha
         self.y = self.y / np.max(self.y)
-        self.set_interpolation(self.interpolate_method)
+        self.set_interpolation(self.interpolate_method,
+                               extrapolate=self.extrapolate,
+                               positive=self.positive)
 
 
 def tophat(xlims, ytype='rsr'):
@@ -1016,9 +1102,7 @@ def tophat(xlims, ytype='rsr'):
     msg = quantity_1darray(xlims, length=2)
     if msg:
         raise ValueError("xlims" + msg)
-    yvals = np.array([1.,1.])
+    yvals = np.array([1., 1.])
     result = Passband(x=xlims, y=yvals, xref=0.5*np.sum(xlims), ytype=ytype,
-                      interpolation='nearest', nowarn=True)
+                      interpolation='nearest', extrapolate='zero', nowarn=True)
     return result
-
-

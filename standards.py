@@ -4,7 +4,9 @@ This module provides function to obtain standard spectra.
 
 - blackbody
 - greybody
-- cohen 2003 
+- cohen 2003 standards
+- vega cohen 1992
+- vega stis 005
 """
 import numpy as np
 import os
@@ -14,8 +16,7 @@ from astropy import constants as const
 from astropy.table import Table
 from .spectrum import BasicSpectrum
 from .phottools import is_frequency, is_wavelength, is_flam, is_fnu, \
-    quantity_scalar, quantity_1darray, quantity_2darray,\
-    velc, nu_unit, lam_unit, flam_unit, fnu_unit
+    quantity_scalar, quantity_1darray
 
 
 def blackbody(temperature, x):
@@ -128,7 +129,7 @@ def power_law(x0, f0, alpha=None, x1=None, f1=None):
                 fnu = f0.value * (nu/x0.value)**walpha
             result = BasicSpectrum(x=nu * x0.unit, y=fnu * f0.unit,
                                    interpolation_method='log-log-linear',
-                                   extrapolate=True)
+                                   extrapolate='yes')
         else:
             raise ValueError("incompatible units between x_0 and f_0")
     elif is_wavelength(x0.unit):
@@ -167,7 +168,7 @@ def power_law(x0, f0, alpha=None, x1=None, f1=None):
             print("flam = {}".format(flam * f0.unit))
             result = BasicSpectrum(x=lam * x0.unit, y=flam * f0.unit,
                                    interpolation_method='log-log-linear',
-                                   extrapolate=True)
+                                   extrapolate='yes')
         else:
             raise ValueError("incompatible units between x_0 and f_0")
     else:
@@ -222,7 +223,7 @@ def cohen2003_star(starname):
         t['col1'][i] = t['col1'][i]-(t['col1'][i]-t['col1'][i-1])*0.1
     t['col1'].unit = u.micron
     t['col2'].unit = u.W/u.cm**2/u.micron
-    spec = BasicSpectrum(data=t, name_x='col1', names_y=['col2'])
+    spec = BasicSpectrum(table=t, name_x='col1', names_y=['col2'])
     return spec
 
 def vega_cohen_1992():
@@ -236,8 +237,8 @@ def vega_cohen_1992():
     default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alp_lyr.cohen_1992')
     data = np.genfromtxt(vegafile)
-    result = BasicSpectrum(x=data[:,0], x_type='lam', x_unit='micron',
-                           y=data[:,1], y_type='flam', y_unit='W/cm**2/micron')
+    result = BasicSpectrum(x=data[:,0], x_unit=u.micron,
+                           y=data[:,1], y_unit=u.W/u.cm**2/u.micron)
     return result
 
 def vega_stis_005():

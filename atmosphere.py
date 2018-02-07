@@ -22,10 +22,14 @@ class Atmosphere(PhotCurve):
     """
     A class to model atmosphere.
     """
-    def __init__(self, file=None, x=None, tau=None, header=None,
-                 interpolation='quadratic'):
+    def __init__(self, file=None, table=None, colname_x=None,
+                 colname_y=None, x=None, tau=None, x_unit=None,
+                 header=None,
+                 interpolation='quadratic', extrapolate='no', positive=True):
         super().__init__(file=file, x=x, y=tau, header=header,
-                       interpolation=interpolation)
+                         table=table, colname_x=colname_x, colnames_y=colname_y,
+                         interpolation=interpolation, x_unit=x_unit,
+                         extrapolate=extrapolate, positive=positive)
 
     def write(self, xunit, dirname=None, overwrite=False,
               force=False, xfmt=':> 0.6f', yfmt=':>0.6f'):

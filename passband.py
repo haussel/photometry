@@ -269,7 +269,7 @@ class Passband(PhotCurve):
 
         self.instrument = None
         self.filter = None
-        self.xref = None
+        self.x_ref = None
         self.org_y_type = None
         self.org_x_ref = None
         self.is_qe = None
@@ -321,14 +321,14 @@ class Passband(PhotCurve):
         self.org_x_ref = xref.value
         if is_frequency(xref.unit):
             if self.is_nu:
-                self.xref = xref.to(self.x_si_unit).value
+                self.x_ref = xref.to(self.x_si_unit).value
             else:
-                self.xref = (velc / xref.to(lam_unit)).value
+                self.x_ref = (velc / xref.to(lam_unit)).value
         elif is_wavelength(xref.unit):
             if self.is_lam:
-                self.xref = xref.to(self.x_si_unit).value
+                self.x_ref = xref.to(self.x_si_unit).value
             else:
-                self.xref = (velc / xref.to(nu_unit)).value
+                self.x_ref = (velc / xref.to(nu_unit)).value
         else:
             raise ValueError('`xref` unit {}'.format(xref.unit) +
                              'must be a wavelength or a frequency unit')
@@ -613,8 +613,8 @@ class Passband(PhotCurve):
             flux = self.integrate(ifnu * itnu, allnu)
             bandwidth = self.integrate(itnu, allnu)
         else:
-            flux = self.integrate(ifnu * itnu * (self.xref / allnu), allnu)
-            bandwidth = self.integrate(itnu * (self.xref / allnu), allnu)
+            flux = self.integrate(ifnu * itnu * (self.x_ref / allnu), allnu)
+            bandwidth = self.integrate(itnu * (self.x_ref / allnu), allnu)
         return flux / bandwidth * fnu_unit
 
     def mag_ab(self, spectrum):
@@ -699,10 +699,10 @@ class Passband(PhotCurve):
         itnu = self.interpolate(allnu)
         if self.is_rsr:
             flux = self.integrate(ifnu * itnu, allnu)
-            bandwidth = self.integrate(itnu * self.xref / allnu, allnu)
+            bandwidth = self.integrate(itnu * self.x_ref / allnu, allnu)
         else:
             flux = self.integrate(ifnu * itnu / allnu, allnu)
-            bandwidth = self.integrate(itnu * (self.xref / allnu) / allnu,
+            bandwidth = self.integrate(itnu * (self.x_ref / allnu) / allnu,
                                        allnu)
         return (flux / bandwidth) * fnu_unit
 
@@ -740,7 +740,7 @@ class Passband(PhotCurve):
             if self.is_rsr:
                 flux = self.integrate(ifnu * itnu, allnu)
             else:
-                flux = self.integrate(ifnu * itnu * (self.xref / allnu),
+                flux = self.integrate(ifnu * itnu * (self.x_ref / allnu),
                                       allnu)
         else:
             lams = spectrum.lam()
@@ -754,7 +754,7 @@ class Passband(PhotCurve):
             if self.is_rsr:
                 flux = self.integrate(iflam * itlam, alllam)
             else:
-                flux = self.integrate(iflam * itlam * (alllam/self.xref),
+                flux = self.integrate(iflam * itlam * (alllam/self.x_ref),
                                       alllam)
         return flux * nufnu_unit
 
@@ -795,8 +795,8 @@ class Passband(PhotCurve):
             flux = self.integrate(iflam * itlam, alllam)
             bandwidth = self.integrate(itlam, alllam)
         else:
-            flux = self.integrate(iflam * itlam * (alllam/ self.xref), alllam)
-            bandwidth = self.integrate(itlam * (alllam / self.xref), alllam)
+            flux = self.integrate(iflam * itlam * (alllam/ self.x_ref), alllam)
+            bandwidth = self.integrate(itlam * (alllam / self.x_ref), alllam)
         return flux / bandwidth * flam_unit
 
     def bandwidth(self, unit, normalize=False):
@@ -859,7 +859,7 @@ class Passband(PhotCurve):
                 self.in_nu()
         else:
             raise ValueError("Invalid unit for xref: {}".format(unit))
-        return (self.xref * self.x_si_unit).to(unit)
+        return (self.x_ref * self.x_si_unit).to(unit)
 
     def combine(self, other):
         """
@@ -901,7 +901,7 @@ class Passband(PhotCurve):
         ally = intts * intto
         # determine the type of passband
         result = Passband(x=allx * self.x_si_unit,
-                          xref=self.xref(self.x_si_unit),  y=ally,
+                          xref=self.x_ref(self.x_si_unit),  y=ally,
                           ytype=restype, nowarn=True)
         return result
 
@@ -1081,7 +1081,7 @@ class Passband(PhotCurve):
         Parameter:
         alpha: float
         """
-        self.y = self.y * (self.x / self.xref)**alpha
+        self.y = self.y * (self.x / self.x_ref)**alpha
         self.y = self.y / np.max(self.y)
         self.set_interpolation(self.interpolate_method,
                                extrapolate=self.extrapolate,

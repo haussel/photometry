@@ -256,7 +256,7 @@ class PhotCurve:
             yv = y
         if y.ndim == 2:
             self.nb = y.shape[0]
-            self.y = yv[idx, :]
+            self.y = yv[:, idx]
         else:
             self.nb = 1
             self.y = yv[idx]

@@ -1,10 +1,10 @@
 # file: SDSS-USNO-40.atm
-# url: http://www-star.fnal.gov/ugriz/Filters/response.html
 # ytype: tau
-# xtype: wavelength
-# reference: Smith et al., 2002, AJ 123, 2121
 # instrument: SDSS
 # atmosphere: SDSS-USNO-40
+# xtype: wavelength
+# url: http://www-star.fnal.gov/ugriz/Filters/response.html
+# reference: Smith et al., 2002, AJ 123, 2121
 # xunit: Angstrom
  3080.000000    1.573340
  3105.000000    1.398911

@@ -1,14 +1,14 @@
 # file: rp.SDSS.pb
-# description: Telescope + Instrument + Atmosphere
+# instrument: SDSS
+# atmosphere: SDSS-USNO-40
+# ytype: qe
+# filter: rp
 # airmass: 1.3
 # xref: 622.6 nm
-# ytype: qe
 # reference: Smith et al., 2002, AJ 123, 2121
-# filter: rp
-# url: http://www-star.fnal.gov/ugriz/Filters/response.html
-# atmosphere: SDSS-USNO-40
 # xtype: wavelength
-# instrument: SDSS
+# url: http://www-star.fnal.gov/ugriz/Filters/response.html
+# description: Telescope + Instrument + Atmosphere
 # system: AB
 # xunit: Angstrom
  5230.0    0.00000

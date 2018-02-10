@@ -1,10 +1,10 @@
 # file: SDSS-2.5m.atm
-# url: http://adsabs.harvard.edu/abs/2010AJ....139.1628D
-# ytype: tau
-# xtype: wavelength
-# reference: Doi et al., 2010, AJ 139. 1628
 # instrument: SDSS
 # atmosphere: SDSS-2.5m
+# xtype: wavelength
+# url: http://adsabs.harvard.edu/abs/2010AJ....139.1628D
+# ytype: tau
+# reference: Doi et al., 2010, AJ 139. 1628
 # xunit: Angstrom
  2940.000000    3.171342
  2960.000000    2.862617

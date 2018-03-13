@@ -11,12 +11,16 @@ This module provides function to obtain standard spectra.
 import numpy as np
 import os
 import inspect
+import glob
+import re
 from astropy import units as u
 from astropy import constants as const
 from astropy.table import Table
+from astropy.io import fits
 from .spectrum import BasicSpectrum
+from scipy.spatial import cKDTree
 from .phottools import is_frequency, is_wavelength, is_flam, is_fnu, \
-    quantity_scalar, quantity_1darray
+    quantity_scalar, quantity_1darray, ndarray_1darray, lam_unit, fnu_unit
 
 
 def blackbody(temperature, x):
@@ -256,3 +260,170 @@ def vega_stis_005():
     result = BasicSpectrum(x=t['WAVELENGTH'].data * u.Angstrom,
                            y=t['FLUX'].data * u.erg/u.s/u.cm**2/u.Angstrom)
     return result
+
+
+class StellarLibrary(BasicSpectrum):
+    """
+    Provide support for spectral libraries, such as the BaSeL 2.2 one (Lejeune
+    et al., 1998) as BasicSpectrum.
+
+    The library can consist in a set of ascii files, such as the distribution
+    off BaSeL 2.2, or a single fits file. In the latter case, it is expected
+    that the fits file contains:
+    extension 'LAMBDA' containing the common array of wavelengths. Unit of
+    wavelengths shall be specified by the 'UNIT' keyword
+    extension 'SED' containing the spectra, in units of erg/s/cm**2/Angstrom
+    extension 'SED_PARAM' containing a bin table with TEFF, LOGG and FEH
+
+    Beside the spectra, the spectral parameters are provided:
+    Teff : effective temperature (K)
+    logg : log surface gravity
+    met  : metallicity [Fe/H]
+    vturb: turbulent velocity (km/s)
+    xh   : I will need to get back to the paper to check what this is.
+    tree : kDTree to quickly search matching spectra
+    """
+    def __init__(self, wavelength=None, hnu=None, Teff=None, logg=None,
+                 met=None, vturb=None, xh=None,
+                 libdir=None, fitsfilename=None,
+                 asciifileregex='^lbc96_[mp]\d\d.cor$'):
+        """
+        Read the spectral files. The distributed files are normally with a name
+        corresponding to the regular expression ^lbc96_[mp]\d\d.cor$. This
+        can be adjusted with the fileregex keyword.
+        The location of the files must be provided using the libdir keyword
+
+        Parameters:
+        -----------
+        libdir: str
+            path to the directory where the library file(s) is located
+
+        fitsfilename: str
+            name of the fits file containing the library.
+
+        asciifileregex: str
+            Regular expression to find the library files.
+        """
+        self.Teff = None
+        self.logg = None
+        self.met = None
+        self.vturb = None
+        self.xh = None
+        if wavelength is not None and hnu is not None and Teff is not None \
+                and logg is not None and vturb is not None and xh is not None:
+            self.Teff = Teff
+            self.logg = logg
+            self.met = met
+            self.vturb = vturb
+            self.xh = xh
+        elif libdir is not None:
+            if fitsfilename is not None:
+                wavelength, hnu = self._read_from_fitsfile(libdir, fitsfilename)
+            else:
+                wavelength, hnu = self._read_from_asciifile(libdir,
+                                                            asciifileregex)
+            # get rid of the zeroes in the spectra
+            maxi = 0
+            for i in range(hnu.shape[0]):
+                idx, = np.where(hnu[i, :].value == 0.)
+                if len(idx) > 0:
+                    locmax = np.max(idx)
+                    if locmax > maxi:
+                        maxi = locmax
+            wavelength = wavelength[(maxi + 1):]
+            hnu = hnu[:, (maxi + 1):]
+
+        else:
+            raise ValueError('Invalid parameters')
+        super().__init__(x=wavelength, y=hnu)
+        msg = ndarray_1darray(self.Teff)
+        if msg is None:
+            params = np.stack([self.Teff, self.logg, self.met], axis=-1)
+        else:
+            params = np.zeros((1, 3))
+            params[0, :] = [Teff, logg, met]
+        self.tree = cKDTree(params)
+
+
+    def _read_from_asciifile(self, libdir, fileregex):
+        filenames = glob.glob(os.path.join(libdir, '*'))
+        baselname = re.compile(fileregex)
+        istar = 0
+        for filename in filenames:
+            fname = os.path.basename(filename)
+            if baselname.match(fname):
+                with open(filename, 'r') as f:
+                    content = f.read()
+                    bits = content.split()
+                    lam = np.array(bits[0:1221], dtype=float)
+                    nstars = int(bits[-1227])
+                    if istar == 0:
+                        hnu = np.zeros((nstars, 1221))
+                        self.Teff = np.zeros(nstars)
+                        self.logg = np.zeros(nstars)
+                        self.met = np.zeros(nstars)
+                        self.vturb = np.zeros(nstars)
+                        self.xh = np.zeros(nstars)
+                    else:
+                        hnu = np.append(hnu, np.zeros((nstars, 1221)), axis=0)
+                        self.Teff = np.append(self.Teff, np.zeros(nstars))
+                        self.logg = np.append(self.logg, np.zeros(nstars))
+                        self.met = np.append(self.met, np.zeros(nstars))
+                        self.vturb = np.append(self.vturb, np.zeros(nstars))
+                        self.xh= np.append(self.xh, np.zeros(nstars))
+                    ipos = 1221
+                    while ipos < len(bits):
+                        self.Teff[istar] = float(bits[ipos+1])
+                        self.logg[istar] = float(bits[ipos+2])
+                        self.met[istar] = float(bits[ipos+3])
+                        self.vturb[istar] = float(bits[ipos + 4])
+                        self.xh[istar] = float(bits[ipos + 5])
+                        hnu[istar, :] = np.array(bits[ipos+6:ipos+6+1221],
+                                                 dtype=float)
+                        istar = istar + 1
+                        ipos = ipos + 1227
+        return lam * u.nm, hnu * u.erg / u.s / u.cm ** 2 / u.Hz
+
+    def _read_from_fitsfile(self, libdir, fitsfilename):
+        hdul = fits.open(os.path.join(libdir, fitsfilename))
+        wavelength = hdul['LAMBDA'].data * \
+             u.Quantity('1 {}'.format(hdul['LAMBDA'].header['UNIT']))
+        hnu = hdul['SED'].data * u.erg / u.s / u.cm**2 / u.Hz
+        nbstars = hnu.shape[0]
+        params = Table(hdul['SED_PARAM'].data)
+        self.Teff = params['TEFF']
+        self.logg = params['LOGG']
+        self.met = params['FEH']
+        self.vturb = np.zeros(nbstars)
+        self.xh = np.zeros(nbstars)
+        return wavelength, hnu
+
+    def __getitem__(self, item):
+        return StellarLibrary(wavelength=self.lam(unit=lam_unit),
+                              hnu=self.fnu(unit=fnu_unit)[item,:],
+                              Teff=self.Teff[item], logg=self.logg[item],
+                              met=self.met[item], vturb=self.vturb[item],
+                              xh=self.xh[item])
+
+    def find_spectra(self, Teff, logg, met):
+        """
+        Return a spectral library containing the requested Teff, logg and
+        metallicity only.
+
+        Parameters:
+        -----------
+        Teff: float or ndarray
+        logg: float or ndarray
+        met:  float of ndarray
+
+        Returns:
+        --------
+        StellarLibray of matching spectra
+        """
+        msg = ndarray_1darray(Teff)
+        if msg is None:
+            params = np.stack([Teff, logg, met], axis=-1)
+        else:
+            params = [Teff, logg, met]
+        index, distance = self.tree.query(params)
+        return self.__getitem__(index)

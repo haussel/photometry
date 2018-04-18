@@ -807,7 +807,7 @@ class PhotometryHeader:
             self.add_card_value(card, value)
 
     def __contains__(self, item):
-        return item in self.content.items()
+        return item in self.content.keys()
 
     def items(self):
         return self.content.items()

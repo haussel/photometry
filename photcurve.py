@@ -65,6 +65,7 @@ class PhotCurve:
     integrate: function
         the function that performs the integration
     ready: bool
+        True
     intialized: bool
     yfactor: float or ndarray
         the scaling factor in y that has been applied to the curve
@@ -74,7 +75,7 @@ class PhotCurve:
     def __init__(self, file=None, x=None, y=None, header=None,
                  table=None, colname_x=None, colnames_y=None,
                  x_unit=None, interpolation=None, extrapolate=None,
-                 positive=True, integration=None):
+                 positive=True, integration=None, delayed_setup=False):
         """
         PhotCurve initialization. Possible initializations are:
 
@@ -135,6 +136,9 @@ class PhotCurve:
             If True, prevent negative interpolation.
         integration: str
             defines the integration method. Can be 'trapezoidal' or 'simpson'
+        delayed_setup: bool
+            if True, the inerpolation and integration setup of the PhotCurve are
+            not done. Defaulted to False
 
         Methods:
         --------
@@ -142,14 +146,15 @@ class PhotCurve:
             sets the interpolation method
         set_integration(method):
             select the integration method
-        scale(factor):
-            scale the y by factor
+        scale(factor, inplace=True):
+            scale the y by factor(s).
         unscale():
             remove all scalings previously applied
         shift(factor):
             shift the x axis by a multiplicative factor.
         unshift():
             remove all previously applied shift
+        combine(other, inplace=False)
         nu([unit]):
             returns x as frequency in unit (or in Hz if unspecified)
         lam([unit]):
@@ -163,6 +168,12 @@ class PhotCurve:
         integrate(y, x):
             computes the integral of y over x.
 
+        The multiplication operator is implemented:
+        photcurve = photcurve1 * photcurve2 using combine() method
+        photcurve = factor * photcurve1 using scale() method
+        photcurve = photcurve1 * factor using scale() method
+        photcurve *= factor using scale() method
+        photcurve *= other using combine() method
         """
         self.file = None
         self.header = PhotometryHeader()
@@ -176,7 +187,7 @@ class PhotCurve:
         self.is_lam = False
         self.is_nu = False
         self.interpolate_method = None
-        self.interpolate_set = None
+        self.interpolate_set = False
         self.extrapolate = None
         self.positive = None
         self.interpolate = None
@@ -204,22 +215,30 @@ class PhotCurve:
                                                          x_unit=x_unit)
             else:
                 raise ValueError("Cannot set both table and x, y values")
-        elif (x is not None) and (y is not None) and (header is not None):
-                self.initialized = self._init_from_header(x, y, header)
-        elif (x is not None) and (y is not None) and (x_unit is None):
-            self.initialized = self._init_from_quantities(x, y, header=header)
-        elif (x is not None) and (y is not None) and (x_unit is not None):
-            self.initialized = self._init_from_ndarray(x, x_unit, y,
-                                                       header=header)
         else:
-            self.initialized = False
+            if (x is not None) and (y is not None):
+                if isinstance(x, u.Quantity):
+                    self.initialized = self._init_from_quantities(x, y,
+                                                                  header=header)
+                elif header is not None:
+                    self.initialized = self._init_from_header(x, y, header)
+                elif x_unit is not None:
+                    self.initialized = self._init_from_ndarray(x, x_unit, y,
+                                                               header=header)
+                else:
+                    self.initialized = False
+            else:
+                self.initialized = False
 
         if self.initialized:
-            self.set_interpolation(interpolation, extrapolate=extrapolate,
-                                   positive=positive)
-            self.set_integration(integration)
+            if not delayed_setup:
+                self.set_interpolation(interpolation, extrapolate=extrapolate,
+                                       positive=positive)
+                self.set_integration(integration)
             if self.interpolate_set and self.integrate_set:
                 self.ready = True
+
+
 
     def _init_from_quantities(self, x, y, header=None):
         # check x
@@ -429,13 +448,89 @@ class PhotCurve:
     def __str__(self):
         result = "{}".format(self.header)
         result += "\nInternal settings:\n"
-        result += "    interpolation method: {} / ready ? {}\n".\
+        result += "    interpolation method: {} / initialized ? {}\n".\
             format(self.interpolate_method, self.interpolate_set)
-        result += "    integration method: {} / ready ? {}\n".format(
+        result += "    integration method: {} / initialized ? {}\n".format(
             self.integration_method, self.integrate_set)
+        result += "    ready to use ? {}\n".format(self.ready)
         return result
 
 
+    def combine(self, other, inplace=False):
+        """
+        Combine two PhotCurves.
+        If the type of x of other is different from self, other is first
+        converted to the type of self.
+        Then both PhotCurves are interpolated to all x positions (using their
+        respective interpolators). The resulted curves are multiplied.
+
+        Parameters:
+        -----------
+        other: PhotCurve
+
+        inplace: Bool
+            if True, self is modified in place
+
+        Returns:
+        --------
+            PhotCurve or self
+        """
+        if not isinstance(other, PhotCurve):
+            raise ValueError("Can only combine two curves")
+        if self.is_lam:
+            if other.is_nu:
+                other.in_lam(reinterpolate=True)
+        elif self.is_nu:
+            if other.is_lam:
+                other.in_nu(reinterpolate=True)
+        allx = np.unique(np.concatenate([other.x, self.x]))
+        othery = other.interpolate(allx)
+        selfy = self.interpolate(allx)
+        finaly = othery * selfy
+        if self.header is not None:
+            newhd = self.header.deepcopy()
+            if other.header is not None:
+                newhd.add_card_value('comment', 'combined with {}'.
+                                      other.header.short_description())
+            else:
+                newhd.add_card_value('comment', 'combined with a non '
+                                     'descript phocurve')
+        if inplace:
+            self.x = allx
+            self.y = finaly
+            self.nb = self.y.shape[0]
+            self.interpolate_set = self.set_interpolation(
+                    self.interpolate_method,
+                    extrapolate=self.extrapolate,
+                    positive=self.positive)
+            self.header = newhd
+            return self
+        else:
+            return PhotCurve(x=allx * self.x_si_unit, y=finaly,
+                             header=newhd)
+
+    def __getitem__(self, item):
+        return PhotCurve(x=self.x * self.x_si_unit, y=self.y[item,:],
+                         interpolation=self.interpolate_method,
+                         extrapolate=self.extrapolate, positive=self.positive,
+                         integration=self.integration_method)
+
+    def __imul__(self, other):
+        if isinstance(other, PhotCurve):
+            # combination of two PhotCurves
+            return self.combine(other, inplace=True)
+        else:
+            return self.scale(other)
+
+    def __mul__(self, other):
+        if isinstance(other, PhotCurve):
+            return self.combine(other, inplace=False)
+        else:
+            return self.scale(other, inplace=False)
+
+    def __rmul__(self, other):
+        # no need to check if other is a PhotCurve in this case
+        return self.scale(other, inplace=False)
 
     def set_interpolation(self, interpolation, extrapolate='no', positive=True):
         """
@@ -517,7 +612,7 @@ class PhotCurve:
     def _integrate_simpson(self, y, x):
         return integrate.simps(y, x=x, axis=-1)
 
-    def scale(self, factor):
+    def scale(self, factor, inplace=True):
         """
         Scale the curve in the sense y *= factor. If factor is a quantity,
         only the value is used and the unit is dropped.
@@ -525,28 +620,37 @@ class PhotCurve:
         Parameter
         ---------
         factor: float or numpy.array of nb curves values
-          the scaling factor(s)
-
+            the scaling factor(s)
+        inplace: Bool
+            whether to output a new photcurve or not.
         Returns
         -------
-        None
+            self or a new PhotCurve
         """
         # Ensure factor has no unit
         if isinstance(factor, u.Quantity):
             wfactor = factor.value
         else:
             wfactor = factor
-        msg = ndarray_1darray(factor, length=self.nb)
-        if msg is None:
-            # factor is a 1D array
-            self.y = self.y * wfactor[:, np.newaxis]
+        msg = ndarray_1darray(wfactor, length=self.nb)
+        if inplace:
+            if msg is None:
+                # factor is a 1D array
+                self.y = self.y * wfactor[:, np.newaxis]
+            else:
+                self.y *= wfactor
+            self.yfactor *= wfactor
+            self.set_interpolation(self.interpolate_method,
+                                   extrapolate=self.extrapolate,
+                                   positive=self.positive)
+            return self
         else:
-            self.y *= wfactor
-        self.yfactor *= factor
-        self.set_interpolation(self.interpolate_method,
-                               extrapolate=self.extrapolate,
-                               positive=self.positive)
-        return None
+            if msg is None:
+                return PhotCurve(x=self.x*self.x_si_unit,
+                                 y=self.y * wfactor[:, np.newaxis])
+            else:
+                return PhotCurve(x=self.x * self.x_si_unit,
+                                 y=self.y * factor)
 
     def unscale(self):
         """

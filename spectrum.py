@@ -106,6 +106,7 @@ class BasicSpectrum(PhotCurve):
     def __init__(self, file=None, table=None, name_x=None, names_y=None,
                  x=None, x_unit=None,
                  y=None, y_type=None, y_unit=None,
+                 header=None,
                  interpolation_method='log-log-linear',
                  extrapolate='no', positive=True):
         """
@@ -158,9 +159,10 @@ class BasicSpectrum(PhotCurve):
         """
         super().__init__(file=file, x=x, y=y, table=table,
                          colname_x=name_x, colnames_y=names_y,
-                         x_unit=x_unit,
+                         x_unit=x_unit, header=header,
                          interpolation=interpolation_method,
-                         extrapolate=extrapolate, positive=positive)
+                         extrapolate=extrapolate, positive=positive,
+                         delayed_setup=True)
 
         if not self.initialized:
             return
@@ -288,10 +290,37 @@ class BasicSpectrum(PhotCurve):
             else:
                 raise ValueError("'y' has no units")
         self.interpolate_set = self.set_interpolation(
-                interpolation_method, extrapolate=self.extrapolate,
+                interpolation_method, extrapolate=extrapolate,
                 positive=positive)
         self.yfactor = np.ones(self.nb)
         self.xshift = 1.0
+        self.Av = 0.0
+        self.extinction = None
+
+    def __getitem__(self, item):
+        return BasicSpectrum(x=self.x * self.x_si_unit,
+                             y=self.y[item,:] * self.y_si_unit,
+                             interpolation_method=self.interpolate_method,
+                             extrapolate=self.extrapolate,
+                             positive=self.positive)
+
+
+    def apply_galactic_extinction(self, Av):
+        """
+        Apply extinction
+        :param Av:
+        :return:
+        """
+        if self.extinction is not None:
+            if self.Av > 0:
+                oldfactor = self.extinction.compute_extinction(self.x *
+                                                               self.x_si_unit,
+                                                               self.Av)
+            else:
+                oldfactor = 1.
+            newfactor = self.extinction.compute_extinction(self.x *
+                                                           self.x_si_unit, Av)
+            self.y *= newfactor/oldfactor
 
     def fnu(self, unit=None, ispec=None):
         """
@@ -448,7 +477,10 @@ class BasicSpectrum(PhotCurve):
         return result
 
     def __str__(self):
-        result = "spectrum:"
+        if self.header is not None:
+            result = '{}\nspectrum:'.format(self.header)
+        else:
+            result = "spectrum:"
         result = result + "\n  nb spectra   : {}".format(self.nb)
         result = result + "\n  nb datapoints: {}".format(len(self.x))
         if self.is_lam:
@@ -535,3 +567,126 @@ class GalaxySpectrum(BasicSpectrum):
         self.scale((new_fact / old_fact).value)
         self.z = redshift
         self.dl = dl
+
+
+class StellarLibrary(BasicSpectrum):
+    """
+    Provide support for spectral libraries, such as the BaSeL 2.2 one (Lejeune
+    et al., 1998) or Pickles (1998) as BasicSpectrum.
+
+    The library can consist in a set of ascii files, such as the distribution
+    off BaSeL 2.2, or a single fits file.
+
+    The StellarLibrary class provides a mechanism to associate parameters to
+    the spectra, allowing to find a match.
+
+    The contructor must be passed either:
+        * a reader function that will returns the wavelengths, spectra,
+          and a matcher object
+        * the wavelengths, spectra and the matcher object
+
+    The matcher object is an object that contains the library parameters with
+    the following methods:
+    * __getitem__: to allow slicing so that the library parameters keeps in
+                   line with slicing of the library
+    * __str__: to format nicely the content of the library parameters
+    * _closest_match: to allow to find the closest spectra in the library for a
+                      set of input parameters
+    * _exact_match: to allow to find the library spectrum matching exactly
+                    the input parameters. It must raise a ValueError is no
+                    match is found.
+
+    See the BaSeL2p2Reader and BaSeL2p2Matcher classes as well as the
+    convenience function BaSeL2p2 for examples of implementation
+
+    Parameters:
+    -----------
+    match_is_exact: bool
+        if True uses exact_match() method for match(), closest_match() if False
+    matcher: object
+        the object containing the parameters and allowing for matching
+    inherited parameters from BasicSpectrum
+
+    Methods:
+    --------
+    __getitem__:
+        select a subsample of the library as a StellarLibrary
+    __str__:
+        print the library content
+    closest_match:
+        returns the closest matching spectrum as a one element StellarLibrary.
+        Uses the _closest_match method of the matcher object.
+    index_closest_match:
+        returns the index of the closest match
+    exact_match:
+        returns the exact matching spectrum as a one element Stellar Library.
+        Uses the _exact_match method of the matcher object.
+    index_exact_match:
+        returns the index of the exact match
+    match:
+        perform a closest or exact match depending on the value of
+        match_is_exact
+    index_match:
+        returns the index of the match
+    inherited methods of BasicSpectrum
+    """
+    def __init__(self, reader=None, x=None, y=None, matcher=None,
+                 interpolation_method='log-log-linear',
+                 extrapolate='no', positive=True, match_is_exact=True):
+        """
+        Initialization by providing either a reader method, or a set of x,
+        values y and a matcher object:
+
+        lib = StellarLibrary(reader=myReader)
+
+        lib = StellarLibrary(x=x, y=y, matcher=myMatcher)
+        """
+        self.match_is_exact = match_is_exact
+        if reader is not None:
+            if x is None and y is None and matcher is None:
+                (x, y, matcher) = reader()
+            else:
+                raise ValueError("Both reader and values are specified")
+        if matcher is None:
+            raise ValueError("No matching mechanism provided")
+        self.matcher = matcher
+        super().__init__(x=x, y=y, interpolation_method=interpolation_method,
+                         extrapolate=extrapolate, positive=positive)
+
+    def __getitem__(self, item):
+        return StellarLibrary(x=self.x * self.x_si_unit,
+                              y=self.y[item,:] * self.y_si_unit,
+                              matcher=self.matcher[item],
+                              interpolation_method=self.interpolate_method,
+                              extrapolate=self.extrapolate,
+                              positive=self.positive,
+                              match_is_exact=self.match_is_exact)
+
+    def __str__(self):
+        result = self.matcher.__str__()
+        result += super().__str__()
+        return result
+
+    def exact_match(self, *args):
+        return self.__getitem__(self.matcher._exact_match(*args))
+
+    def index_exact_match(self, *args):
+        return self.matcher._exact_match(*args)
+
+    def closest_match(self, *args):
+        return self.__getitem__(self.matcher._closest_match(*args))
+
+    def index_closest_match(self, *args):
+        return self.matcher._closest_match(*args)
+
+    def match(self, *args):
+        if self.match_is_exact:
+            return self.exact_match(*args)
+        else:
+            return self.closest_match(*args)
+
+    def index_match(self, *args):
+        if self.match_is_exact:
+            return self.index_exact_match(*args)
+        else:
+            return self.index_closest_match(*args)

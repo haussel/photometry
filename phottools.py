@@ -170,7 +170,6 @@ def quantity_scalar(x):
         return msg
     return msg
 
-
 def ndarray_1darray(x, length=None, other=None):
     """
     Check that an input is a 1d array with at least 2 elements
@@ -189,7 +188,7 @@ def ndarray_1darray(x, length=None, other=None):
     if x checks OK, returns None, otherwize returns a string message
     """
     msg = None
-    if not isinstance(x, np.ndarray):
+    if not isinstance(x, np.ndarray) and x is not list:
         msg = " has to be an array"
         return msg
     if len(x.shape) > 1:
@@ -273,9 +272,9 @@ def ndarray_2darray(x, length=None, other=None):
     if x.ndim > 2:
         msg = " has to be 1D or 2D"
         return msg
-    if x.shape[0] < 2:
-        msg = " has to have 2 elements or more"
-        return msg
+#    if x.shape[0] < 2:
+#        msg = " has to have 2 elements or more"
+#        return msg
     if length is not None:
         if x.shape[-1] != length:
             msg = " must have the same number of" \
@@ -785,6 +784,7 @@ class PhotometryHeader:
     - Reading from a line is done by the import_line() method
     - Dictionaries can be imported by the import_dict() method
     - Card and values can be added by the add_card_value() method.
+    - Values can be modified with the edit_card_value() method
     """
 
     def __init__(self):
@@ -807,7 +807,7 @@ class PhotometryHeader:
             self.add_card_value(card, value)
 
     def __contains__(self, item):
-        return self.content.items()
+        return item in self.content.items()
 
     def items(self):
         return self.content.items()
@@ -882,6 +882,29 @@ class PhotometryHeader:
             self.add_card_value(k, v)
         return None
 
+    def short_description(self):
+        """
+        Try to provide a short description from the header content
+
+        Return
+        ------
+        str
+        """
+        keys = self.content.keys()
+        if 'filename' in keys:
+            result =  '{}: {}'.format('filename', self.content['filename'])
+        elif 'filter' in keys and 'instrument' in keys:
+            result = '{}: {} {}'.format('instrument and filter',
+                                         self.content['instrument'],
+                                         self.content['filter'])
+        elif 'description' in keys:
+            result = '{}: {}'.format('description', self.content['description'])
+        elif 'comment' in keys:
+            result = '{}: {}'.format('comment', self.content['comment'])
+        else:
+            result = 'no short description available'
+        return result
+
     def format_card(self, key, value):
         """
         Format the card, value to print header.
@@ -901,15 +924,25 @@ class PhotometryHeader:
                 result += '\n# {}: {}'.format(key, bit)
         return result
 
+    def deepcopy(self):
+        """
+
+        :return:
+        """
+        result = PhotometryHeader()
+        for key, value in self.content.items():
+            result.content[key] = value
+        return result
+
     def __str__(self):
         """
         Overloading of string representation
         :return: str
         """
         if len(self.content) == 0:
-            result = 'Header: None'
+            result = 'Header: Empty'
         else:
-            result = '############### Header #################'
+            result = '################# Header ######################'
             for k, v in self.content.items():
                 result += '\n{}'.format(self.format_card(k, v))
             result += '\n############### End of Header #################'

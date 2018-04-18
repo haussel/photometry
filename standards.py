@@ -7,6 +7,7 @@ This module provides function to obtain standard spectra.
 - cohen 2003 standards
 - vega cohen 1992
 - vega stis 005
+- vega stis 008
 """
 import numpy as np
 import os
@@ -17,11 +18,13 @@ from astropy import units as u
 from astropy import constants as const
 from astropy.table import Table
 from astropy.io import fits
-from .spectrum import BasicSpectrum
+from .spectrum import BasicSpectrum, StellarLibrary
 from scipy.spatial import cKDTree
 from .phottools import is_frequency, is_wavelength, is_flam, is_fnu, \
-    quantity_scalar, quantity_1darray, ndarray_1darray, lam_unit, fnu_unit
+    quantity_scalar, quantity_1darray, ndarray_1darray, lam_unit, fnu_unit, \
+    PhotometryHeader
 
+from .config import STELLAR_LIBRARY_DIR
 
 def blackbody(temperature, x):
     """
@@ -232,8 +235,9 @@ def cohen2003_star(starname):
 
 def vega_cohen_1992():
     """
+    Read Vega spectrum from Cohen et al. (1992)
 
-    :return:
+    :return: BasicSpectrum
     """
     dummy = BasicSpectrum()
     classpath = inspect.getfile(dummy.__class__)
@@ -241,7 +245,9 @@ def vega_cohen_1992():
     default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alp_lyr.cohen_1992')
     data = np.genfromtxt(vegafile)
-    result = BasicSpectrum(x=data[:,0], x_unit=u.micron,
+    hd = PhotometryHeader()
+    hd.add_card_value('filename','alpha_lyr.cohen_1992')
+    result = BasicSpectrum(x=data[:,0], x_unit=u.micron, header=hd,
                            y=data[:,1], y_unit=u.W/u.cm**2/u.micron)
     return result
 
@@ -256,13 +262,437 @@ def vega_stis_005():
     basepath = os.path.dirname(classpath)
     default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alpha_lyr_stis_005.fits')
+    hd = PhotometryHeader()
+    hd.add_card_value('filename','alpha_lyr_stis_005.fits')
     t = Table.read(vegafile)
-    result = BasicSpectrum(x=t['WAVELENGTH'].data * u.Angstrom,
+    result = BasicSpectrum(x=t['WAVELENGTH'].data * u.Angstrom, header=hd,
+                           y=t['FLUX'].data * u.erg/u.s/u.cm**2/u.Angstrom)
+    return result
+
+def vega_stis_008():
+    """
+    Returns the CALSPEC alpha_lyr_stis_005 as a BasicSpectrum
+
+    :return: BasicSpectrum
+    """
+    dummy = BasicSpectrum()
+    classpath = inspect.getfile(dummy.__class__)
+    basepath = os.path.dirname(classpath)
+    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    vegafile = os.path.join(default_vega_dir, 'alpha_lyr_stis_008.fits')
+    t = Table.read(vegafile)
+    hd = PhotometryHeader()
+    hd.add_card_value('filename','alpha_lyr_stis_008.fits')
+    result = BasicSpectrum(x=t['WAVELENGTH'].data * u.Angstrom, header=hd,
                            y=t['FLUX'].data * u.erg/u.s/u.cm**2/u.Angstrom)
     return result
 
 
-class StellarLibrary(BasicSpectrum):
+def vega_ck_1994(norm='Hayes85'):
+    """
+    Returns the Vega spectrum of Castelli & Kurucz (1994).
+
+    The Vega spectrum is a luminosity, and needs to be converted to a flux
+    density at earth.
+
+    fl = 4 pi Hnu c / lambda**2 / (d/R)**2
+
+    where l is the distance to Vega, and (d/R)**2 is the dilution factor:
+    d/R =  206265/(theta/2))
+    with theta is the stellar angular diameter corrected for limb darkening and
+    206265 is the distance of 1pc in AU.
+
+    Different normalisations are provided the norm keyword.
+
+    Parameters:
+    -----------
+
+    norm: str
+        can be:
+            'Hayes85'  : uses the value of 3.44e-9 erg/s/cm**2/A at 5556 A.
+            'Bessel98' : uses theta = 3.24 mas
+
+    Returns:
+    --------
+    BasicSpectrum
+    """
+    dummy = BasicSpectrum()
+    classpath = inspect.getfile(dummy.__class__)
+    basepath = os.path.dirname(classpath)
+    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    vegafile = os.path.join(default_vega_dir, 'vega.sed')
+    t = Table.read(vegafile, names=['wavelength','hlam'], comment='#',
+                   format='ascii')
+    hd = PhotometryHeader()
+    hd.add_card_value('filename','vega.sed')
+    vega = BasicSpectrum(x=t['wavevelength'], header=hd,
+                         y=t['hlam'] * u.W / u.m**2 / u.angstrom)
+    if norm == 'Hayes85':
+        val = vega.flam_lam(5556 * u.angstrom)
+        vega.scale(3.44e-9 * u.erg / u.s / u.cm**2 / u.angstrom / val,
+                   inplace=True)
+        vega.hd.add_card_value('comment', 'scaled to the Hayes (1985) value '
+                                          'Flam(5556A) = {}'.
+                    format(3.44e-9 * u.erg / u.s / u.cm**2 / u.angstrom))
+    else:
+        raise NotImplementedError
+    return vega
+
+#### BaSeL 2p2 Library
+
+class BaSeL2p2Match:
+    def __init__(self, Teff, logg, met, vturb, xh):
+        self.Teff = Teff
+        self.logg = logg
+        self.met = met
+        self.vturb = vturb
+        self.xh = xh
+        try:
+            l = len(self.Teff)
+        except TypeError:
+            params = np.zeros((1, 3))
+            params[0, :] = [Teff, logg, met]
+        else:
+            params = np.stack([self.Teff, self.logg, self.met], axis=-1)
+        self.tree = cKDTree(params)
+
+    def __getitem__(self, item):
+        return BaSeL2p2Match(self.Teff[item], self.logg[item],
+                             self.met[item], self.vturb[item], self.xh[item])
+
+    def __str__(self):
+        result = 'BaSeL 2.2 Library by Lejeune et al. (1998)\n'
+        result += 'Library parameters ({} values): \n'.format(len(self.Teff))
+        result += 'Teff (matching param) from {} to {}\n'.format(np.min(
+            self.Teff), np.max(self.Teff))
+        result += 'logg (matching param) from {} to {}\n'.format(np.min(
+            self.logg), np.max(self.logg))
+        result += 'met (matching param) from {} to {}\n'.format(np.min(
+            self.met), np.max(self.met))
+        result += 'vturb (not matching param) from {} to {}\n'.format(np.min(
+            self.vturb), np.max(self.vturb))
+        result += 'xh (not matching param) from {} to {}\n'.format(np.min(
+            self.xh), np.max(self.xh))
+        return result
+
+    def _closest_match(self, Teff, logg, met, return_distance=False):
+        try:
+            l = len(Teff)
+        except TypeError:
+            params = [Teff, logg, met]
+        else:
+            params = np.stack([Teff, logg, met], axis=-1)
+        distance, index = self.tree.query(params)
+        if return_distance:
+            return index, distance
+        else:
+            return index
+
+    def _exact_match(self, Teff, logg, met):
+        index, distance = self._closest_match(Teff, logg, met,
+                                              return_distance=True)
+        if np.any(distance > 0):
+            raise ValueError('no exact match')
+        return index
+
+
+class BaSeL2p2Reader:
+
+    def __init__(self, libdir=None, asciifileregex=None):
+        self.libdir=libdir
+        self.regex = re.compile(asciifileregex)
+
+    def __call__(self):
+        filenames = glob.glob(os.path.join(self.libdir, '*'))
+        istar = 0
+        for filename in filenames:
+            fname = os.path.basename(filename)
+            if self.regex.match(fname):
+                with open(filename, 'r') as f:
+                    content = f.read()
+                    bits = content.split()
+                    lam = np.array(bits[0:1221], dtype=float)
+                    nstars = int(bits[-1227])
+                    if istar == 0:
+                        hnu = np.zeros((nstars, 1221))
+                        Teff = np.zeros(nstars)
+                        logg = np.zeros(nstars)
+                        met = np.zeros(nstars)
+                        vturb = np.zeros(nstars)
+                        xh = np.zeros(nstars)
+                    else:
+                        hnu = np.append(hnu, np.zeros((nstars, 1221)),
+                                        axis=0)
+                        Teff = np.append(Teff, np.zeros(nstars))
+                        logg = np.append(logg, np.zeros(nstars))
+                        met = np.append(met, np.zeros(nstars))
+                        vturb = np.append(vturb, np.zeros(nstars))
+                        xh = np.append(xh, np.zeros(nstars))
+                    ipos = 1221
+                    while ipos < len(bits):
+                        Teff[istar] = float(bits[ipos+1])
+                        logg[istar] = float(bits[ipos+2])
+                        met[istar] = float(bits[ipos+3])
+                        vturb[istar] = float(bits[ipos + 4])
+                        xh[istar] = float(bits[ipos + 5])
+                        hnu[istar, :] = np.array(bits[ipos+6:ipos+6+1221],
+                                                 dtype=float)
+                        istar = istar + 1
+                        ipos = ipos + 1227
+        matchmaker = BaSeL2p2Match(Teff, logg, met, vturb, xh)
+        return lam * u.nm, hnu * u.erg / u.s / u.cm ** 2 / u.Hz, matchmaker
+
+
+def BaSeL2p2(libdir=os.path.join(STELLAR_LIBRARY_DIR, 'BaSeL2.2'),
+             asciifileregex='^lbc96_[mp]\d\d.cor$'):
+    """
+    Read the BaSeL 2.2 (Lejeune et al. 1998) as a StellarLibrary
+
+    Parameters
+    ----------
+    libdir : str
+        path to the directory where the library can be found.
+    asciifileregex: str
+        python regular expression
+    """
+    return StellarLibrary(reader=BaSeL2p2Reader(libdir=libdir,
+                                                asciifileregex=asciifileregex),
+                          interpolation_method='linear', extrapolate='no',
+                          positive=True)
+
+
+
+### Pickles 1998 Library
+class Pickles1998Match:
+    def __init__(self, sptype, lumclass, met):
+        self.sptype = self.sptype2typ(sptype)
+        self.lumclass = self.lumclass2lum(lumclass)
+        self.met = self.met2num(met)
+        if type(sptype) is str:
+            self.s_sptype = np.array([sptype])
+            self.s_lumclass = np.array([lumclass])
+            self.s_met = np.array([met])
+#            self.params = np.zeros((1, 3))
+#            self.params[0,:] = [self.sptype, self.lumclass, self.met]
+        else:
+            self.s_sptype = np.array(sptype)
+            self.s_lumclass = np.array(lumclass)
+            self.s_met = np.array(met)
+        params = np.stack([self.sptype, self.lumclass, self.met], axis=-1)
+        self.tree = cKDTree(params)
+
+
+    def __getitem__(self, item):
+        return Pickles1998Match(self.s_sptype[item], self.s_lumclass[item],
+                                self.s_met[item])
+
+    def __str__(self):
+        result = 'Pickles (1998) Library \n'
+        result += 'Library parameters ({} values): \n'.format(len(
+            self.sptype))
+        result += 'sptype (matching param): {}\n'.format(self.s_sptype)
+        result += 'lumclass (matching param): {} \n'.format(self.s_lumclass)
+        result += 'met (matching param): {}\n'.format(self.s_met)
+        return result
+
+    def _closest_match(self, sptype, lumclass, met, return_distance=False):
+
+        typ = self.sptype2typ(sptype)
+        lum = self.lumclass2lum(lumclass)
+        met = self.met2num(met)
+        params = np.stack([typ, lum, met], axis=-1)
+        distance, index = self.tree.query(params)
+        if return_distance:
+            return index, distance
+        else:
+            return index
+
+    def _exact_match(self, sptype, lumclass, met):
+        index, distance = self._closest_match(sptype, lumclass, met,
+                                              return_distance=True)
+        if np.any(distance > 0):
+            raise ValueError('no exact match')
+        return index
+
+    def lumclass2lum(self, lumclass):
+        d = {'I': 0.0, 'II': 1.0, 'III': 2.0, 'IV': 3.0, 'V': 4.0}
+        if type(lumclass) is str:
+            result = [d[lumclass]]
+        else:
+            result = [d[x] for x in lumclass]
+        return result
+
+    def lum2lumclass(self, lum):
+        d = ['I', 'II', 'III', 'IV', 'V']
+        result = [d[x] for x in lum]
+        return result
+
+    def sptype2typ(self, sptype):
+        d = {'O': 0.0, 'B': 1.0, 'A': 2.0, 'F': 3.0, 'G': 4.0, 'K': 5.0,
+             'M': 6.0}
+        r = re.compile('([OBAFGKM])((\d)(\.?)(/?)(\d?))')
+        if type(sptype) is str:
+            wstptype = [sptype]
+        else:
+            wstptype = sptype
+        result = []
+        for s in wstptype:
+            m = r.match(s)
+            if m:
+                if m.group(4) is '.':
+                    digit = float(m.group(2))/10.
+                elif m.group(5) is '/':
+                    digit = 0.5 * (float(m.group(3))+float(m.group(6)))/10.
+                elif m.group(4) is '' and m.group(5) is '':
+                    digit = np.mean([float(x)/10. for x in m.group(2)])
+                result.append(d[m.group(1)]+digit)
+            else:
+                raise ValueError('Invalid spectral type: "{}"'.format(s))
+        return result
+
+    def met2num(self, met):
+        d = {'w':0.0, '':1.0, 'r':2.0}
+        if type(met) is str:
+            result = [d[met]]
+        else:
+            result = [d[x] for x in met]
+        return result
+
+class Pickles1998Reader:
+    def __init__(self, libdir=None):
+        self.libdir=libdir
+
+    def __call__(self):
+        synphot = Table.read(os.path.join(self.libdir, 'synphot.dat'),
+                             format='ascii')
+
+        r = re.compile('([rw]?)([OBAFGKM]\d\.?/?\d?)([IV]+)')
+        sptypes = []
+        lumclasses = []
+        mets = []
+        for i, row in enumerate(synphot):
+            m = r.match(row['col5'])
+            if m:
+                mets.append(m.group(1))
+                sptypes.append(m.group(2))
+                lumclasses.append(m.group(3))
+            else:
+                raise ValueError('invalid spectral class :"{}"'.
+                                 format(row['col5']))
+            fname = os.path.join(self.libdir, 'uk' + synphot['col25'][i] +
+                                 '.dat')
+            t = Table.read(fname, format='ascii.cds', readme=os.path.join(
+                self.libdir, 'ReadMe'))
+            if i == 0:
+                x = t['lambda'].data
+                y = t['nflam'].data
+            else:
+                if np.any((x - t['lambda'].data) != 0):
+                    raise ValueError('Inconsistent wavelengths in file {'
+                                     '}'.format(fname))
+                y = np.append(y, t['nflam'].data)
+        x = x * u.Angstrom
+        y = y.reshape((len(synphot), len(x))) * u.erg / u.s / u.cm**2 / u.Angstrom
+        matchmaker = Pickles1998Match(sptypes, lumclasses, mets)
+        return x, y, matchmaker
+
+def Pickles1998(libdir=os.path.join(STELLAR_LIBRARY_DIR, 'Pickles1998')):
+    """
+    Read the Pickles (1998) library as a StellarLibrary
+
+    Parameters
+    ----------
+    libdir : str
+        path to the directory where the library can be found.
+    asciifileregex: str
+        python regular expression
+    """
+    reader = Pickles1998Reader(libdir=libdir)
+    return StellarLibrary(reader=reader, interpolation_method='linear',
+                          extrapolate='no', positive=True)
+
+
+## Euclid OU-SIM stellar library
+
+class EuclidOUSIMMatcher:
+    def __init__(self, Teff, logg, feh):
+        try:
+            l = len(Teff)
+        except TypeError:
+            self.Teff = np.array([Teff])
+            self.logg = np.array([logg])
+            self.met = np.array([feh])
+            params = np.zeros((1, 3))
+            params[0, :] = [Teff, logg, feh]
+        else:
+            self.Teff = Teff
+            self.logg = logg
+            self.met = feh
+            params = np.stack([self.Teff, self.logg, self.met], axis=-1)
+        self.tree = cKDTree(params)
+
+    def __getitem__(self, item):
+        return EuclidOUSIMMatcher(self.Teff[item], self.logg[item],
+                                  self.met[item])
+
+    def __str__(self):
+        result = 'BaSeL 2.2 Library by Lejeune et al. (1998) (OU-SIM version)\n'
+        result += 'Library parameters ({} values): \n'.format(len(self.Teff))
+        result += 'Teff (matching param) from {} to {}\n'.format(np.min(
+            self.Teff), np.max(self.Teff))
+        result += 'logg (matching param) from {} to {}\n'.format(np.min(
+            self.logg), np.max(self.logg))
+        result += 'met (matching param) from {} to {}\n'.format(np.min(
+            self.met), np.max(self.met))
+        return result
+
+    def _closest_match(self, Teff, logg, met, return_distance=False):
+        try:
+            l = len(Teff)
+        except TypeError:
+            params = [Teff, logg, met]
+        else:
+            params = np.stack([Teff, logg, met], axis=-1)
+        distance, index = self.tree.query(params)
+        if return_distance:
+            return index, distance
+        else:
+            return index
+
+    def _exact_match(self, Teff, logg, met):
+        index, distance = self._closest_match(Teff, logg, met,
+                                              return_distance=True)
+        if np.any(distance > 0):
+            raise ValueError('no exact match')
+        else:
+            return index
+
+
+class EuclidOUSIMReader:
+    def __init__(self, libdir=None, libfitsfile=None):
+        self.libdir = libdir
+        self.libfitsfile = libfitsfile
+
+    def __call__(self):
+        hdul = fits.open(os.path.join(self.libdir, self.libfitsfile))
+        x = hdul['LAMBDA'].data * \
+            u.Quantity('1 {}'.format(hdul['LAMBDA'].header['UNIT']))
+        y = hdul['SED'].data * u.erg / u.s / u.cm**2 / u.Hz
+        params = Table(hdul['SED_PARAM'].data)
+        matcher = EuclidOUSIMMatcher(params['TEFF'].data, params['LOGG'].data,
+                                     params['FEH'].data)
+        return x, y, matcher
+
+
+def EuclidOUSIM(libdir=os.path.join(STELLAR_LIBRARY_DIR, 'OU-SIM'),
+                libfitsfile='EUC-TEST-SEDLIB-2013-11-14T152700.000.fits'):
+    reader = EuclidOUSIMReader(libdir=libdir, libfitsfile=libfitsfile)
+    return StellarLibrary(reader=reader, interpolation_method='linear',
+                          extrapolate='no', positive=True)
+
+
+
+class OldStellarLibrary(BasicSpectrum):
     """
     Provide support for spectral libraries, such as the BaSeL 2.2 one (Lejeune
     et al., 1998) as BasicSpectrum.

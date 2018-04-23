@@ -46,6 +46,7 @@ from astropy import units as u
 from astropy import constants as const
 import re
 import os
+from .config import PHOTOMETRY_INSTALL_DIR
 
 
 # package constants and units.
@@ -310,6 +311,7 @@ def quantity_2darray(x, length=None, other=None):
     return msg
 
 
+
 def read_photometry_file(filename):
     """
     Read a photometry ascii file
@@ -329,7 +331,7 @@ def read_photometry_file(filename):
     """
     if not os.path.exists(filename):
         result = []
-        basedir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+        basedir = os.path.join(PHOTOMETRY_INSTALL_DIR,
                                'data/')
         for root, dirs, files in os.walk(basedir):
             if filename in files:

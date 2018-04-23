@@ -24,7 +24,7 @@ from .phottools import is_frequency, is_wavelength, is_flam, is_fnu, \
     quantity_scalar, quantity_1darray, ndarray_1darray, lam_unit, fnu_unit, \
     PhotometryHeader
 
-from .config import STELLAR_LIBRARY_DIR
+from .config import PHOTOMETRY_INSTALL_DIR, STELLAR_LIBRARY_DIR
 
 def blackbody(temperature, x):
     """
@@ -192,10 +192,9 @@ def cohen2003_table():
     -------
     returns an astropy.table.Table
     """
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    cohen2003_dir = os.path.join(basepath, 'data/spectra/cohen2003')
+
+    cohen2003_dir = os.path.join(PHOTOMETRY_INSTALL_DIR,
+                                 'data/spectra/cohen2003')
     tabfile = os.path.join(cohen2003_dir, 'table7and8.csv')
     t = Table.read(tabfile)
     return t
@@ -218,10 +217,8 @@ def cohen2003_star(starname):
     idx, = np.where(t['Name'].data == starname)
     if len(idx) !=1 :
         raise ValueError("Star {} is not in Cohen+2003".format(starname))
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    cohen2003_dir = os.path.join(basepath, 'data/spectra/cohen2003')
+    cohen2003_dir = os.path.join(PHOTOMETRY_INSTALL_DIR,
+                                 'data/spectra/cohen2003')
     starfile = os.path.join(cohen2003_dir, t['File'][idx[0]])
     t = Table.read(starfile, format='ascii', data_start=t['DataStart'][idx[0]])
     # some wavelength are dupicated.
@@ -239,10 +236,7 @@ def vega_cohen_1992():
 
     :return: BasicSpectrum
     """
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    default_vega_dir = os.path.join(PHOTOMETRY_INSTALL_DIR, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alp_lyr.cohen_1992')
     data = np.genfromtxt(vegafile)
     hd = PhotometryHeader()
@@ -257,10 +251,7 @@ def vega_stis_005():
 
     :return: BasicSpectrum
     """
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    default_vega_dir = os.path.join(PHOTOMETRY_INSTALL_DIR, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alpha_lyr_stis_005.fits')
     hd = PhotometryHeader()
     hd.add_card_value('filename','alpha_lyr_stis_005.fits')
@@ -275,10 +266,7 @@ def vega_stis_008():
 
     :return: BasicSpectrum
     """
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    default_vega_dir = os.path.join(PHOTOMETRY_INSTALL_DIR, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'alpha_lyr_stis_008.fits')
     t = Table.read(vegafile)
     hd = PhotometryHeader()
@@ -316,10 +304,7 @@ def vega_ck_1994(norm='Hayes85'):
     --------
     BasicSpectrum
     """
-    dummy = BasicSpectrum()
-    classpath = inspect.getfile(dummy.__class__)
-    basepath = os.path.dirname(classpath)
-    default_vega_dir = os.path.join(basepath, 'data/spectra/vega')
+    default_vega_dir = os.path.join(PHOTOMETRY_INSTALL_DIR, 'data/spectra/vega')
     vegafile = os.path.join(default_vega_dir, 'vega.sed')
     t = Table.read(vegafile, names=['wavelength','hlam'], comment='#',
                    format='ascii')

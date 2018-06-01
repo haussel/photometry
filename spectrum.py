@@ -10,7 +10,8 @@ from astropy import units as u
 from .photcurve import PhotCurve
 from .phottools import is_flam, \
     is_fnu, is_flux, velc , nu_unit, lam_unit, flam_unit, fnu_unit, nufnu_unit
-
+from .extinction import ExtinctionLaw
+from .config import DEBUG
 
 class BasicSpectrum(PhotCurve):
     """
@@ -294,7 +295,7 @@ class BasicSpectrum(PhotCurve):
                 positive=positive)
         self.yfactor = np.ones(self.nb)
         self.xshift = 1.0
-        self.Av = 0.0
+        self.Av = np.zeros(self.nb)
         self.extinction = None
 
     def __getitem__(self, item):
@@ -304,6 +305,17 @@ class BasicSpectrum(PhotCurve):
                              extrapolate=self.extrapolate,
                              positive=self.positive)
 
+    def set_extinction(self, extobj, Rv=None):
+        """
+
+        :param extobj:
+        :return:
+        """
+        if isinstance(extobj, ExtinctionLaw):
+            self.extinction = extobj
+            self.extinction.set_curve(self.x * self.x_si_unit)
+            if Rv is not None:
+                self.extinction.set_R_V(Rv)
 
     def apply_galactic_extinction(self, Av):
         """
@@ -312,7 +324,7 @@ class BasicSpectrum(PhotCurve):
         :return:
         """
         if self.extinction is not None:
-            if self.Av > 0:
+            if self.extinction.ready:
                 oldfactor = self.extinction.compute_extinction(self.x *
                                                                self.x_si_unit,
                                                                self.Av)
@@ -320,7 +332,15 @@ class BasicSpectrum(PhotCurve):
                 oldfactor = 1.
             newfactor = self.extinction.compute_extinction(self.x *
                                                            self.x_si_unit, Av)
+            if DEBUG:
+                print('np.any(np.isfinite(oldfactor))={}'.format(np.any(
+                    np.isfinite(
+                oldfactor))))
+                print('np.any(np.isfinite(newfactor))={}'.format(np.any(
+                    np.isfinite(newfactor))))
+                print('self.y.shape={}'.format(self.y.shape))
             self.y *= newfactor/oldfactor
+            self.Av = Av
 
     def fnu(self, unit=None, ispec=None):
         """

@@ -546,11 +546,17 @@ class NearestInterpolator:
                 extrapolate))
         self.extrapolate = extrapolate
         self.positive = positive
-        self.x_low = x[0]
-        self.x_high = x[-1]
-        self.x_bounds = (x[1:] + x[:-1]) / 2.
-        self.x_bounds = np.append(self.x_bounds, [x[-1]])
-        self.y = y
+        idx = np.argsort(x)
+        wx = x[idx]
+        self.x_low = wx[0]
+        self.x_high = wx[-1]
+        self.x_bounds = (wx[1:] + wx[:-1]) / 2.
+        self.x_bounds = np.append(self.x_bounds, [wx[-1]])
+        if y.ndim == 2:
+            wy = y[:,idx]
+        else:
+            wy = y[idx]
+        self.y = wy
 
     def __call__(self, x):
         idx = np.searchsorted(self.x_bounds, x)
@@ -616,13 +622,17 @@ class LinearInterpolator:
                 extrapolate))
         self.extrapolate = extrapolate
         self.positive = positive
-        self.x = x
+        idx = np.argsort(x)
+        wx = x[idx]
+        self.x = wx
         if y.ndim == 2:
-            self.slopes = (y[:, 1:] - y[:, :-1]) / (x[1:] - x[:-1])
-            self.ordinates = y[:, :-1] - self.slopes * x[:-1]
+            wy = y[:,idx]
+            self.slopes = (wy[:, 1:] - wy[:, :-1]) / (wx[1:] - wx[:-1])
+            self.ordinates = wy[:, :-1] - self.slopes * wx[:-1]
         else:
-            self.slopes = (y[1:] - y[:-1]) / (x[1:] - x[:-1])
-            self.ordinates = y[:-1] - self.slopes * x[:-1]
+            wy = y[idx]
+            self.slopes = (wy[1:] - wy[:-1]) / (wx[1:] - wx[:-1])
+            self.ordinates = wy[:-1] - self.slopes * wx[:-1]
 
     def __call__(self, x):
         idx = np.digitize(x, self.x)-1
@@ -667,7 +677,7 @@ class LogLogLinearInterpolator(LinearInterpolator):
 class QuadraticInterpolator:
     """
     Quadratic interpolation:
-    - computes the 2nd degree polynom coefficients at each Xi that pass
+    - computes th   e 2nd degree polynom coefficients at each Xi that pass
       through (Xi-1,Yi-1),(Xi,Yi),(Xi+1,Yi+1).
     - for any point between Xi and Xi+1, the output is the weighted
       sum of the polynoms Pi and Pi+1, the weights beeing the distance
@@ -698,33 +708,36 @@ class QuadraticInterpolator:
                 extrapolate))
         self.extrapolate = extrapolate
         self.positive = positive
-        self.x = x
-        self.n = len(x)
+        idx = np.argsort(x)
+        self.x = wx
+        self.n = len(wx)
         xc = np.arange(self.n, dtype='int64')
         xc[0] = 1
         xc[self.n - 1] = self.n - 2
         xm = xc - 1
         xp = xc + 1
-        discrim = (x[xm] - x[xc]) * (x[xm] - x[xp]) * (x[xp] - x[xc])
+        discrim = (wx[xm] - wx[xc]) * (wx[xm] - wx[xp]) * (wx[xp] - wx[xc])
         zz, = np.where(discrim == 0)
         if len(zz) > 0:
             raise ValueError("quadratic interpolation: discrimiment has "
                              "0 values \ndiscrim = {}".format(discrim))
         if y.ndim == 2:
-            self.b = ((y[:, xm] - y[:, xc]) *
-                      (x[xm] * x[xm] - x[xp] * x[xp]) -
-                      ((x[xm] * x[xm] - x[xc] * x[xc]) *
-                       (y[:, xm] - y[:, xp]))) / discrim
-            self.c = ((y[:, xm] - y[:, xp]) * (x[xm] - x[xc]) -
-                      (x[xm] - x[xp]) * (y[:, xm] - y[:, xc])) / discrim
-            self.a = y[:, xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
+            wy = y[:,idx]
+            self.b = ((wy[:, xm] - wy[:, xc]) *
+                      (wx[xm] * wx[xm] - wx[xp] * wx[xp]) -
+                      ((wx[xm] * wx[xm] - wx[xc] * wx[xc]) *
+                       (wy[:, xm] - wy[:, xp]))) / discrim
+            self.c = ((wy[:, xm] - wy[:, xp]) * (wx[xm] - wx[xc]) -
+                      (wx[xm] - wx[xp]) * (wy[:, xm] - wy[:, xc])) / discrim
+            self.a = wy[:, xc] - self.b * wx[xc] - self.c * wx[xc] * wx[xc]
         else:
-            self.b = ((y[xm] - y[xc]) * (x[xm] * x[xm] - x[xp] * x[xp]) -
-                      ((x[xm] * x[xm] - x[xc] * x[xc]) *
-                       (y[xm] - y[xp]))) / discrim
-            self.c = ((y[xm] - y[xp]) * (x[xm] - x[xc]) -
-                      (x[xm] - x[xp]) * (y[xm] - y[xc])) / discrim
-            self.a = y[xc] - self.b * x[xc] - self.c * x[xc] * x[xc]
+            wy = y[idx]
+            self.b = ((wy[xm] - wy[xc]) * (wx[xm] * wx[xm] - wx[xp] * wx[xp]) -
+                      ((wx[xm] * wx[xm] - wx[xc] * wx[xc]) *
+                       (wy[xm] - wy[xp]))) / discrim
+            self.c = ((wy[xm] - wy[xp]) * (wx[xm] - wx[xc]) -
+                      (wx[xm] - wx[xp]) * (wy[xm] - wy[xc])) / discrim
+            self.a = wy[xc] - self.b * wx[xc] - self.c * wx[xc] * wx[xc]
 
     def __call__(self, x):
         nexti = np.digitize(x, self.x)

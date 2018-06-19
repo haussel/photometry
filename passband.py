@@ -1087,6 +1087,20 @@ class Passband(PhotCurve):
                                extrapolate=self.extrapolate,
                                positive=self.positive)
 
+    def rsr(self):
+        if self.is_rsr:
+            result = self.y / np.max(self.y)
+        else:
+            result = self.y * self.lam() / np.max(self.y * self.lam())
+        return result
+
+    def qe(self):
+        if self.is_qe:
+            result = self.y / np.max(self.y)
+        else:
+            result = self.y / self.lam() / np.max(self.y / self.lam())
+        return result
+
 
 def tophat(xlims, ytype='rsr'):
     """

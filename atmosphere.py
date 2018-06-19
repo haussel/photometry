@@ -34,7 +34,7 @@ class Atmosphere(PhotCurve):
     def write(self, xunit, dirname=None, overwrite=False,
               force=False, xfmt=':> 0.6f', yfmt=':>0.6f'):
         """
-        Write a atmosphere to a file. The unit for the x-axis does nor need
+        Write a atmosphere to a file. The unit for the x-axis does not need
         to be the same as the internal representation.
         By default, the file name is constructed from from the instrument
         name and the atmosphere name, in the form instrument.atmosphere.atm
@@ -114,7 +114,10 @@ class Atmosphere(PhotCurve):
         return numpy.exp(-tau * airmass)
 
 
-
+class SubmmAtmosphere(Atmosphere):
+    """
+    A class to describe
+    """
 
 class IramAtmosphere:
     """

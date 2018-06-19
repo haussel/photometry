@@ -46,7 +46,7 @@ from astropy import units as u
 from astropy import constants as const
 import re
 import os
-from .config import PHOTOMETRY_INSTALL_DIR
+from .config import PHOTOMETRY_INSTALL_DIR, DEBUG
 
 
 # package constants and units.
@@ -476,6 +476,9 @@ class PhotometryInterpolator:
 
     """
     def __init__(self, x, y, kind, extrapolate='no', positive=True):
+        if DEBUG:
+            print('Setting interpolation to "{}"'.format(kind))
+
         if kind == 'nearest':
             self.interpolator = NearestInterpolator(x, y, positive=positive,
                                                     extrapolate=extrapolate)
@@ -709,6 +712,7 @@ class QuadraticInterpolator:
         self.extrapolate = extrapolate
         self.positive = positive
         idx = np.argsort(x)
+        wx = x[idx]
         self.x = wx
         self.n = len(wx)
         xc = np.arange(self.n, dtype='int64')
@@ -718,6 +722,8 @@ class QuadraticInterpolator:
         xp = xc + 1
         discrim = (wx[xm] - wx[xc]) * (wx[xm] - wx[xp]) * (wx[xp] - wx[xc])
         zz, = np.where(discrim == 0)
+        if DEBUG:
+            print('len(discrim == 0) = {}'.format(len(zz)))
         if len(zz) > 0:
             raise ValueError("quadratic interpolation: discrimiment has "
                              "0 values \ndiscrim = {}".format(discrim))

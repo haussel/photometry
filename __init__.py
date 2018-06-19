@@ -43,9 +43,10 @@ from .phottools import *
 from .photcurve import *
 from .passband import *
 from .spectrum import *
+from .extinction import *
 from .atmosphere import *
 from .irampassband import *
 from .standards import *
 from .planets import *
-
+from .euclidtu import *
 

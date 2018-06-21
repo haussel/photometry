@@ -265,8 +265,8 @@ class EuclidOUSIMGalaxies:
         if len(idx) > 0:
             sed_high[idx] = self.speclib.nb-1
         specshigh = self.speclib[sed_high]
-        specs = sed_frac[:, np.newaxis] * specslow.y + \
-                (1. - sed_frac[:,np.newaxis]) * specshigh.y
+        specs = (1.-sed_frac[:, np.newaxis]) * specslow.y + \
+                sed_frac[:,np.newaxis] * specshigh.y
         ext = (self.extlib[incat[self.ext_curve].data.astype(int),:] /
                self.extlib[0, :])**(incat[self.ebv_internal].data[:,np.newaxis]
                                     / 0.2)

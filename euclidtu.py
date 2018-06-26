@@ -92,7 +92,7 @@ class EuclidOUSIMStarsReader:
 
 def EuclidOUSIMStars(libdir=os.path.join(STELLAR_LIBRARY_DIR, 'OU-SIM'),
                      libfitsfile='EUC-TEST-SEDLIB-2013-11-14T152700.000.fits'):
-    reader = EuclidOUSIMReader(libdir=libdir, libfitsfile=libfitsfile)
+    reader = EuclidOUSIMStarsReader(libdir=libdir, libfitsfile=libfitsfile)
     return StellarLibrary(reader=reader, interpolation_method='linear',
                           extrapolate='no', positive=True)
 

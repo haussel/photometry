@@ -122,7 +122,7 @@ class EuclidOUSIMGalaxies:
 
     """
     def __init__(self, libdir=os.path.join(GALAXY_LIBRARY_DIR, 'OU-SIM'),
-                 setup=None):
+                 setupfile=None, setupdata=None):
         # Default values for catalog column names
         self.sed_index = 'sed_template'
         self.ext_curve = 'ext_law'
@@ -141,15 +141,51 @@ class EuclidOUSIMGalaxies:
         self.mw_av = 'Av'
         self.mw_ebv = None
         self.refmag_in_flux = False
-        if setup is not None:
-            self._read_setup(setup)
-            self.emission_lines[0, 0] = self.logf_halpha
-            self.emission_lines[1, 0] = self.logf_hbeta
-            self.emission_lines[2:4,0] = self.logf_o2
-            self.emission_lines[4:6, 0] = self.logf_o3
-            self.emission_lines[6:8, 0] = self.logf_n2
-            self.emission_lines[8:10, 0] = self.logf_s2
-            self.refpb['inCol'] = self.reference_mag
+        self.do_emission_lines = True
+        self.do_mw_extinction = True
+        if setupfile is not None:
+            self._read_setup(setupfile)
+        elif setupdata is not None:
+            if 'Halpha' in setupdata:
+                self.logf_halpha = setupdata['Halpha']
+            if 'Hbeta' in setupdata:
+                self.logf_hbeta = setupdata['Hbeta']
+            if 'OII' in setupdata:
+                self.logf_o2 = setupdata['OII']
+            if 'OIII' in setupdata:
+                self.logf_o3 = setupdata['OIII']
+            if 'NII' in setupdata:
+                self.logf_n2 = setupdata['NII']
+            if 'SII' in setupdata:
+                self.logf_s2 = setupdata['SII']
+            if 'SED' in setupdata:
+                self.sed_index = setupdata['SED']
+            if 'EXT' in setupdata:
+                self.ext_curve = setupdata['EXT']
+            if 'EBV' in setupdata:
+                self.ebv_internal = setupdata['EBV']
+            if 'Z' in setupdata:
+                self.redshift = setupdata['Z']
+            if 'R01_ABS_MAG' in setupdata:
+                self.r01_abs_mag = setupdata['R01_ABS_MAG']
+            if 'REFERENCE_MAG' in setupdata:
+                self.reference_mag =setupdata['REFERENCE_MAG']
+            if 'MW_AV' in setupdata:
+                self.mw_av = setupdata['MW_AV']
+                self.mw_ebv = None
+            elif 'MW_EBV' in setupdata:
+                self.mw_ebv = setupdata['MW_EBV']
+                self.mw_av = None
+            if 'REFMAG_IS_FLUX' in setupdata:
+                self.refmag_in_flux = setupdata['REFMAG_IS_FLUX']
+        self.emission_lines[0, 0] = self.logf_halpha
+        self.emission_lines[1, 0] = self.logf_hbeta
+        self.emission_lines[2:4,0] = self.logf_o2
+        self.emission_lines[4:6, 0] = self.logf_o3
+        self.emission_lines[6:8, 0] = self.logf_n2
+        self.emission_lines[8:10, 0] = self.logf_s2
+        self.refpb['inCol'] = self.reference_mag
+
         # load the reference passband
         self.refpb['band'] = Passband(file=self.refpb['file'])
         # final coverage of the spectrum (in Angstrom)
@@ -296,37 +332,39 @@ class EuclidOUSIMGalaxies:
         result.scale(sc)
         result.in_lam(reinterpolate=False)
         result.in_flam(reinterpolate=True)
+        if self.do_emission_lines:
         # Add emission lines
-        widths = 10.**((-0.1 + 0.01 * incat[self.redshift]) *
-                       (incat[self.r01_abs_mag]-3.0) -
-                        0.05 * incat[self.redshift])
-        idx, = np.where(widths < 50)
-        widths[idx] = 50.
-        fluxes = np.zeros((specslow.nb, self.emission_lines.shape[0]))
-        sigmas = np.zeros((specslow.nb, self.emission_lines.shape[0]))
-        center = np.zeros((specslow.nb, self.emission_lines.shape[0]))
-        for i in range(self.emission_lines.shape[0]):
-            fluxes[:,i] = 10.**(incat[self.emission_lines[i,0]].data)/ \
-                          float(self.emission_lines[i, 2])
-            center[:, i] = float(self.emission_lines[i,1]) * \
-                            (1.+incat[self.redshift])
-            sigmas[:,i] = widths * float(self.emission_lines[i,1]) * \
-                          1000. / 299792458. * (1.+incat[self.redshift])
-        emspec = np.sum(1./np.sqrt(2.*np.pi)/sigmas[:, :, np.newaxis] * \
-                        np.exp(-(((self.wavelength[np.newaxis,np.newaxis:] -
+            widths = 10.**((-0.1 + 0.01 * incat[self.redshift]) *
+                           (incat[self.r01_abs_mag]-3.0) -
+                            0.05 * incat[self.redshift])
+            idx, = np.where(widths < 50)
+            widths[idx] = 50.
+            fluxes = np.zeros((specslow.nb, self.emission_lines.shape[0]))
+            sigmas = np.zeros((specslow.nb, self.emission_lines.shape[0]))
+            center = np.zeros((specslow.nb, self.emission_lines.shape[0]))
+            for i in range(self.emission_lines.shape[0]):
+                fluxes[:,i] = 10.**(incat[self.emission_lines[i,0]].data)/ \
+                              float(self.emission_lines[i, 2])
+                center[:, i] = float(self.emission_lines[i,1]) * \
+                                (1.+incat[self.redshift])
+                sigmas[:,i] = widths * float(self.emission_lines[i,1]) * \
+                              1000. / 299792458. * (1.+incat[self.redshift])
+            emspec = np.sum(1./np.sqrt(2.*np.pi)/sigmas[:, :, np.newaxis] * \
+                            np.exp(-(((self.wavelength[np.newaxis,np.newaxis:] -
                                    center[:, :, np.newaxis])/
                                   sigmas[:,:,np.newaxis])**2)/2) *
-                        fluxes[:,:, np.newaxis], axis=1)
+                            fluxes[:,:, np.newaxis], axis=1)
 
-        result = BasicSpectrum(x=self.wavelength * u.Angstrom,
-                               y=result.flam(unit=UNIT_SPECLIB)
-                                 + emspec*UNIT_SPECLIB)
-        result.set_extinction(self.extinction, Rv=3.1)
-        if self.mw_av is not None:
-            result.apply_galactic_extinction(incat[self.mw_av].data)
-        elif self.mw_ebv is not None:
-            result.apply_galactic_extinction(3.1*incat[self.mw_ebv].data)
-        else:
-            raise ValueError("No MW extinction set")
+            result = BasicSpectrum(x=self.wavelength * u.Angstrom,
+                                   y=result.flam(unit=UNIT_SPECLIB)
+                                     + emspec*UNIT_SPECLIB)
+        if self.do_mw_extinction:
+            result.set_extinction(self.extinction, Rv=3.1)
+            if self.mw_av is not None:
+                result.apply_galactic_extinction(incat[self.mw_av].data)
+            elif self.mw_ebv is not None:
+                result.apply_galactic_extinction(3.1*incat[self.mw_ebv].data)
+            else:
+                raise ValueError("No MW extinction set")
         return result
 

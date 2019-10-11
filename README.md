@@ -20,12 +20,13 @@ frequencies or wavelengths, not energies).
 - numpy
 - scipy
 - astropy
+- BeautifulSoup
 
 ## Installation
 ```
 git clone https://github.com/haussel/photometry.git
 ```
-and make sure the `photomemtry/` directory is in your PYTHONPATH.
+and make sure the `photometry/` directory is in your PYTHONPATH.
 
 All the passband data are provided with the distribution, but some
 spectral libraries are not, as they are a bit on the heavy side. If you
